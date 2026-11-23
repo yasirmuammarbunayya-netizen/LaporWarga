@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warna brand tetap (header, ikon aplikasi) -->
+    <color name="brand_dark">#1E3A8A</color>
+    <color name="brand">#2563EB</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+
+    <!-- Warna status laporan -->
+    <color name="status_sent">#F59E0B</color>
+    <color name="status_processing">#2563EB</color>
+    <color name="status_done">#16A34A</color>
+
+    <!-- Palet tema terang (di-override oleh values-night untuk dark mode) -->
+    <color name="md_primary">#1D4ED8</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#DBEAFE</color>
+    <color name="md_on_primary_container">#1E3A8A</color>
+    <color name="md_secondary">#0891B2</color>
+    <color name="md_on_secondary">#FFFFFF</color>
+    <color name="md_background">#F3F6FC</color>
+    <color name="md_surface">#FFFFFF</color>
+    <color name="md_on_surface">#0F172A</color>
+    <color name="md_surface_variant">#E8EDF7</color>
+    <color name="md_on_surface_variant">#5B6577</color>
+    <color name="md_outline">#C6CDDB</color>
+    <color name="md_error">#DC2626</color>
+    <color name="md_on_error">#FFFFFF</color>
+    <color name="md_error_container">#FEE2E2</color>
+    <color name="md_on_error_container">#7F1D1D</color>
+</resources>

@@ -1,0 +1,8 @@
+## (OPSIONAL) Salin menjadi local.properties jika ingin membuat signed APK lewat Gradle.
+## Aplikasi ini TIDAK membutuhkan API key apa pun untuk dijalankan.
+## local.properties tidak boleh di-commit (sudah ada di .gitignore).
+
+# KEYSTORE_PATH=C\:\\keystore\\laporwarga.jks
+# KEYSTORE_PASSWORD=password_keystore
+# KEY_ALIAS=laporwarga
+# KEY_PASSWORD=password_key

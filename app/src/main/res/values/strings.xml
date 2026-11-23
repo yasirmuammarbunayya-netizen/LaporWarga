@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lapor Warga</string>
+    <string name="app_tagline">Laporkan kerusakan fasilitas umum\ndi sekitar Anda dengan mudah</string>
+    <string name="app_version">Versi %1$s</string>
+    <string name="about_title">Tentang aplikasi</string>
+    <string name="loading">Memproses…</string>
+    <string name="cancel">Batal</string>
+    <string name="retry">Coba lagi</string>
+    <string name="edit">Ubah</string>
+    <string name="delete">Hapus</string>
+
+    <!-- Navigasi -->
+    <string name="nav_home">Beranda</string>
+    <string name="nav_map">Peta</string>
+    <string name="nav_my_reports">Laporan Saya</string>
+    <string name="nav_profile">Profil</string>
+
+    <!-- Autentikasi -->
+    <string name="login_title">Selamat datang kembali</string>
+    <string name="login_subtitle">Masuk untuk mulai melaporkan</string>
+    <string name="login_button">Masuk</string>
+    <string name="login_link">Masuk</string>
+    <string name="register_title">Buat akun baru</string>
+    <string name="register_subtitle">Bergabung dan bantu perbaiki lingkungan Anda</string>
+    <string name="register_button">Daftar</string>
+    <string name="register_link">Daftar</string>
+    <string name="no_account">Belum punya akun?</string>
+    <string name="have_account">Sudah punya akun?</string>
+    <string name="hint_name">Nama lengkap</string>
+    <string name="hint_email">Email</string>
+    <string name="hint_password">Password</string>
+    <string name="hint_confirm_password">Konfirmasi password</string>
+    <string name="helper_password">Minimal 6 karakter</string>
+
+    <!-- Beranda -->
+    <string name="home_greeting">Halo, %1$s</string>
+    <string name="home_title">Laporan warga</string>
+    <string name="search_hint">Cari judul, deskripsi, atau alamat…</string>
+    <string name="filter_all_category">Semua kategori</string>
+    <string name="filter_all_status">Semua status</string>
+    <string name="result_count">%1$d laporan</string>
+    <string name="sort_format">Urutkan: %1$s</string>
+    <string name="sort_newest">Terbaru</string>
+    <string name="sort_oldest">Terlama</string>
+    <string name="sort_title">Judul A-Z</string>
+    <string name="fab_add">Buat laporan</string>
+    <string name="empty_title">Belum ada laporan</string>
+    <string name="empty_message">Jadilah yang pertama melaporkan masalah di sekitar Anda.</string>
+    <string name="not_found_title">Laporan tidak ditemukan</string>
+    <string name="not_found_message">Coba ubah kata kunci pencarian atau filter yang dipilih.</string>
+    <string name="register_success">Akun berhasil dibuat. Silakan masuk.</string>
+    <string name="reset_filter">Reset filter</string>
+    <string name="error_title">Terjadi masalah</string>
+    <string name="no_address">Alamat tidak tersedia</string>
+    <string name="cd_report_photo">Foto laporan</string>
+
+    <!-- Kategori & status -->
+    <string name="cat_road">Jalan</string>
+    <string name="cat_lighting">Lampu jalan</string>
+    <string name="cat_garbage">Sampah</string>
+    <string name="cat_water">Air &amp; drainase</string>
+    <string name="cat_facility">Fasilitas umum</string>
+    <string name="cat_other">Lainnya</string>
+    <string name="status_sent">Dikirim</string>
+    <string name="status_processing">Diproses</string>
+    <string name="status_done">Selesai</string>
+
+    <!-- Peta -->
+    <string name="map_legend">Status laporan</string>
+    <string name="map_no_marker">Belum ada laporan yang memiliki koordinat lokasi.</string>
+    <string name="marker_snippet">%1$s • %2$s</string>
+    <string name="cd_my_location">Lokasi saya</string>
+    <string name="my_location_marker">Lokasi Anda</string>
+    <string name="map_offline">Tidak ada internet. Peta mungkin tidak termuat.</string>
+    <string name="see_detail">Lihat detail</string>
+    <string name="back">Kembali</string>
+    <string name="permission_location_denied">Izin lokasi ditolak. Fitur lokasi otomatis tidak dapat digunakan.</string>
+    <string name="error_location_failed">Lokasi tidak ditemukan. Pastikan GPS aktif lalu coba lagi.</string>
+
+    <!-- Laporan saya -->
+    <string name="my_reports_title">Laporan saya</string>
+    <string name="my_reports_summary">%1$d laporan • %2$d selesai</string>
+    <string name="my_reports_empty_title">Anda belum membuat laporan</string>
+    <string name="my_reports_empty_message">Laporan yang Anda buat akan muncul di sini.</string>
+
+    <!-- Detail -->
+    <string name="detail_title">Detail laporan</string>
+    <string name="reported_by">Dilaporkan oleh %1$s</string>
+    <string name="label_location">Lokasi</string>
+    <string name="label_description">Deskripsi</string>
+    <string name="coordinates_format">Koordinat: %1$.5f, %2$.5f</string>
+    <string name="open_in_maps">Buka di aplikasi peta</string>
+    <string name="change_status">Ubah status</string>
+    <string name="status_updated">Status diubah menjadi %1$s</string>
+    <string name="action_share">Bagikan</string>
+    <string name="share_text">Laporan Lapor Warga\n\n%1$s\nKategori: %2$s\nLokasi: %3$s\n\n%4$s</string>
+    <string name="delete_title">Hapus laporan?</string>
+    <string name="delete_message">Laporan yang dihapus tidak dapat dikembalikan.</string>
+    <string name="report_deleted">Laporan dihapus</string>
+    <string name="error_no_maps_app">Tidak ada aplikasi peta yang dapat membuka lokasi ini.</string>
+    <string name="error_report_not_found">Laporan tidak ditemukan atau sudah dihapus.</string>
+
+    <!-- Form -->
+    <string name="form_title_new">Buat laporan</string>
+    <string name="form_title_edit">Ubah laporan</string>
+    <string name="label_photo">Foto bukti</string>
+    <string name="photo_hint">Ambil foto atau pilih dari galeri</string>
+    <string name="camera">Kamera</string>
+    <string name="gallery">Galeri</string>
+    <string name="remove_photo">Hapus</string>
+    <string name="hint_title">Judul laporan</string>
+    <string name="hint_category">Kategori</string>
+    <string name="hint_description">Deskripsi masalah</string>
+    <string name="hint_address">Alamat / lokasi kejadian</string>
+    <string name="coordinates_empty">Koordinat belum diatur</string>
+    <string name="use_current_location">Gunakan lokasi saat ini</string>
+    <string name="locating">Mencari lokasi…</string>
+    <string name="submit_report">Kirim laporan</string>
+    <string name="save_changes">Simpan perubahan</string>
+    <string name="report_created">Laporan berhasil dikirim</string>
+    <string name="report_updated">Perubahan berhasil disimpan</string>
+    <string name="mode_portrait">POTRET</string>
+    <string name="mode_photo">FOTO</string>
+    <string name="mode_video">VIDEO</string>
+    <string name="portrait_effect_on">Potret: efek blur latar aktif</string>
+    <string name="portrait_effect_off">Potret (efek blur tidak didukung perangkat ini)</string>
+    <string name="camera_no_audio">Izin mikrofon ditolak. Video akan direkam tanpa suara.</string>
+    <string name="video_label">Video</string>
+    <string name="cd_play_video">Putar video</string>
+    <string name="close">Tutup</string>
+    <string name="form_video_tip">Buka Kamera lalu pilih mode VIDEO untuk merekam video bukti (maks. 30 detik, opsional).</string>
+    <string name="error_video_failed">Gagal memproses video. Silakan coba lagi.</string>
+    <string name="camera_retake">Hapus</string>
+    <string name="gallery_saved">Tersimpan di galeri</string>
+    <string name="gallery_failed">Gagal menyimpan ke galeri</string>
+    <string name="capture_deleted">Dihapus (termasuk dari galeri)</string>
+    <string name="remove_media_title">Hapus dari laporan?</string>
+    <string name="remove_from_report_only">Hapus dari laporan saja</string>
+    <string name="remove_also_gallery">Hapus juga dari galeri</string>
+    <string name="delete_also_gallery">Hapus juga foto &amp; video dari galeri</string>
+    <string name="report_deleted_gallery_failed">Laporan dihapus, tetapi berkas di galeri tidak dapat dihapus. Hapus manual lewat aplikasi Galeri.</string>
+    <string name="camera_use">Gunakan foto</string>
+    <string name="camera_capture_failed">Gagal mengambil foto. Silakan coba lagi.</string>
+    <string name="camera_unavailable">Kamera dalam aplikasi tidak tersedia. Menggunakan kamera bawaan.</string>
+    <string name="zoom_format">%1$.1fx</string>
+    <string name="cd_close">Tutup kamera</string>
+    <string name="cd_flash">Mode blitz</string>
+    <string name="cd_shutter">Ambil foto</string>
+    <string name="cd_switch_camera">Ganti kamera</string>
+    <string name="permission_camera_denied">Izin kamera ditolak. Anda masih bisa memilih foto dari galeri.</string>
+
+    <!-- Profil -->
+    <string name="stat_total">Total</string>
+    <string name="dark_mode">Mode gelap</string>
+    <string name="wallpaper_auto">Wallpaper berganti warna otomatis</string>
+    <string name="logout">Keluar</string>
+    <string name="logout_title">Keluar dari akun?</string>
+    <string name="logout_message">Anda perlu masuk kembali untuk membuat laporan.</string>
+
+    <!-- Notifikasi -->
+    <string name="notif_channel_name">Status laporan</string>
+    <string name="notif_channel_desc">Pemberitahuan saat status laporan berubah</string>
+    <string name="notif_title">Status laporan diperbarui</string>
+    <string name="notif_text">Laporan \"%1$s\" kini berstatus %2$s</string>
+
+    <!-- Validasi -->
+    <string name="error_name_empty">Nama tidak boleh kosong</string>
+    <string name="error_name_short">Nama minimal 3 karakter</string>
+    <string name="error_email_empty">Email tidak boleh kosong</string>
+    <string name="error_email_invalid">Format email tidak valid</string>
+    <string name="error_password_empty">Password tidak boleh kosong</string>
+    <string name="error_password_short">Password minimal 6 karakter</string>
+    <string name="error_confirm_empty">Konfirmasi password tidak boleh kosong</string>
+    <string name="error_confirm_mismatch">Konfirmasi password tidak sama</string>
+    <string name="error_title_empty">Judul tidak boleh kosong</string>
+    <string name="error_title_short">Judul minimal 5 karakter</string>
+    <string name="error_title_long">Judul maksimal 80 karakter</string>
+    <string name="error_description_empty">Deskripsi tidak boleh kosong</string>
+    <string name="error_description_short">Deskripsi minimal 10 karakter</string>
+    <string name="error_address_empty">Alamat tidak boleh kosong</string>
+    <string name="error_photo_required">Foto bukti wajib dilampirkan</string>
+    <string name="error_photo_failed">Gagal memproses foto. Coba foto lain.</string>
+
+    <!-- Pesan error umum -->
+    <string name="error_generic">Terjadi kesalahan. Silakan coba lagi.</string>
+    <string name="error_invalid_credentials">Email atau password salah.</string>
+    <string name="error_email_in_use">Email ini sudah terdaftar. Silakan masuk.</string>
+    <string name="error_not_logged_in">Sesi login berakhir. Silakan masuk kembali.</string>
+    <string name="error_database">Terjadi kesalahan pada penyimpanan data. Silakan coba lagi.</string>
+    <string name="error_storage">Gagal menyimpan atau membaca berkas. Periksa ruang penyimpanan perangkat.</string>
+</resources>
