@@ -1,7 +1,9 @@
+
 package com.example.tugashelloworld.ui.form
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -34,10 +36,6 @@ sealed interface FormEvent {
     data class Error(val message: String) : FormEvent
 }
 
-/**
- * Menyimpan seluruh state form (foto, koordinat, kategori) agar tidak hilang saat layar diputar.
- * Dipakai untuk mode TAMBAH (reportId = 0) maupun EDIT (reportId terisi).
- */
 class FormViewModel(
     application: Application,
     savedStateHandle: SavedStateHandle
@@ -50,20 +48,23 @@ class FormViewModel(
     val isEdit: Boolean get() = reportId != 0L
 
     private var existing: Report? = null
-    private var originalPhotoPath: String = ""
-    private var originalVideoPath: String = ""
+    private var originalPhotoPath = ""
+    private var originalVideoPath = ""
 
-    /** Uri salinan foto/video di galeri (hanya untuk hasil dari kamera aplikasi ini). */
     var photoGalleryUri: String = ""
         private set
+
     var videoGalleryUri: String = ""
         private set
-    private var originalPhotoGalleryUri: String = ""
-    private var originalVideoGalleryUri: String = ""
+
+    private var originalPhotoGalleryUri = ""
+    private var originalVideoGalleryUri = ""
+
     private val pendingGalleryDeletes = mutableListOf<String>()
+
     private var saved = false
 
-    var prefilled: Boolean = false
+    var prefilled = false
     var pendingCameraUri: Uri? = null
     var category: ReportCategory = ReportCategory.ROAD
 
@@ -73,19 +74,20 @@ class FormViewModel(
     private val _loadingReport = MutableStateFlow(false)
     val loadingReport: StateFlow<Boolean> = _loadingReport.asStateFlow()
 
-    /** Path file foto yang sedang dipilih ("" jika belum ada). */
     private val _photoPath = MutableStateFlow("")
     val photoPath: StateFlow<String> = _photoPath.asStateFlow()
 
-    /** Path file video lampiran ("" jika tidak ada). Video bersifat opsional. */
     private val _videoPath = MutableStateFlow("")
     val videoPath: StateFlow<String> = _videoPath.asStateFlow()
 
     private val _processingPhoto = MutableStateFlow(false)
     val processingPhoto: StateFlow<Boolean> = _processingPhoto.asStateFlow()
 
-    private val _coordinates = MutableStateFlow<Pair<Double, Double>?>(null)
-    val coordinates: StateFlow<Pair<Double, Double>?> = _coordinates.asStateFlow()
+    private val _coordinates =
+        MutableStateFlow<Pair<Double, Double>?>(null)
+
+    val coordinates: StateFlow<Pair<Double, Double>?> =
+        _coordinates.asStateFlow()
 
     private val _locating = MutableStateFlow(false)
     val locating: StateFlow<Boolean> = _locating.asStateFlow()
@@ -102,140 +104,371 @@ class FormViewModel(
 
     private fun loadExisting() {
         val context = getApplication<Application>()
+
         viewModelScope.launch {
             _loadingReport.value = true
+
             try {
+                val user = authRepository.currentUser
+                    ?: throw NotLoggedInException()
+
                 val report = repository.getReport(reportId)
-                if (report == null) {
-                    _events.send(FormEvent.Error(context.getString(R.string.error_report_not_found)))
-                } else {
-                    existing = report
-                    originalPhotoPath = report.photoPath
-                    originalVideoPath = report.videoPath
-                    photoGalleryUri = report.photoGalleryUri
-                    videoGalleryUri = report.videoGalleryUri
-                    originalPhotoGalleryUri = report.photoGalleryUri
-                    originalVideoGalleryUri = report.videoGalleryUri
-                    _videoPath.value = report.videoPath
-                    category = report.categoryEnum()
-                    _photoPath.value = report.photoPath
-                    if (report.hasLocation()) _coordinates.value = report.latitude to report.longitude
-                    _editReport.value = report
+                    ?: throw IllegalStateException(
+                        context.getString(R.string.error_report_not_found)
+                    )
+
+                if (report.userId != user.id) {
+                    throw SecurityException(
+                        "Anda tidak memiliki izin untuk mengedit laporan ini."
+                    )
                 }
+
+                existing = report
+
+                originalPhotoPath = report.photoPath
+                originalVideoPath = report.videoPath
+
+                photoGalleryUri = report.photoGalleryUri
+                videoGalleryUri = report.videoGalleryUri
+
+                originalPhotoGalleryUri = report.photoGalleryUri
+                originalVideoGalleryUri = report.videoGalleryUri
+
+                _videoPath.value = report.videoPath
+                _photoPath.value = report.photoPath
+
+                category = report.categoryEnum()
+
+                if (report.hasLocation()) {
+                    _coordinates.value =
+                        report.latitude to report.longitude
+                }
+
+                _editReport.value = report
+
             } catch (e: Exception) {
-                _events.send(FormEvent.Error(ErrorMapper.message(context, e)))
+                val message = if (e is SecurityException) {
+                    e.message
+                        ?: "Anda tidak memiliki izin mengedit laporan ini."
+                } else {
+                    ErrorMapper.message(context, e)
+                }
+
+                _events.send(FormEvent.Error(message))
+
             } finally {
                 _loadingReport.value = false
             }
         }
     }
 
-    /** Mengompres foto dari kamera/galeri lalu menyimpannya ke penyimpanan internal. */
-    fun processPhoto(uri: Uri, fromCamera: Boolean = false, galleryUri: String? = null) {
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            _processingPhoto.value = true
-            val path = ImageUtils.saveCompressed(context, uri)
-            if (fromCamera) ImageUtils.discardCameraUri(context, uri)
-            if (path == null) {
-                _events.send(FormEvent.Error(context.getString(R.string.error_photo_failed)))
-            } else {
-                discardUnsavedPhoto()
-                _photoPath.value = path
-                photoGalleryUri = galleryUri.orEmpty()
-            }
-            _processingPhoto.value = false
+    /**
+     * Memastikan hanya satu proses media berjalan pada satu waktu.
+     * Fungsi dipanggil dari Main Thread oleh Fragment.
+     */
+    private fun beginMediaProcessing(): Boolean {
+        if (_processingPhoto.value || _saving.value) {
+            return false
         }
-    }
 
-    /** Menyimpan video hasil rekaman kamera ke penyimpanan internal. */
-    fun processVideo(uri: Uri, galleryUri: String? = null) {
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            _processingPhoto.value = true
-            val path = ImageUtils.saveVideo(context, uri)
-            ImageUtils.discardCameraUri(context, uri)
-            if (path == null) {
-                _events.send(FormEvent.Error(context.getString(R.string.error_video_failed)))
-            } else {
-                discardUnsavedVideo()
-                _videoPath.value = path
-                videoGalleryUri = galleryUri.orEmpty()
-            }
-            _processingPhoto.value = false
-        }
-    }
-
-    fun removeVideo(deleteFromGallery: Boolean = false) {
-        discardUnsavedVideo()
-        _videoPath.value = ""
-        val uri = videoGalleryUri
-        videoGalleryUri = ""
-        if (deleteFromGallery) queueGalleryDelete(uri, uri == originalVideoGalleryUri)
+        _processingPhoto.value = true
+        return true
     }
 
     /**
-     * Menghapus item galeri. Jika item itu sudah tercatat di laporan lama (original),
-     * penghapusan ditunda sampai laporan benar-benar disimpan agar tidak ada rujukan yang menggantung.
+     * Mengompres foto dari kamera atau galeri.
      */
-    private fun queueGalleryDelete(uri: String, isOriginal: Boolean) {
-        if (uri.isBlank()) return
-        if (isOriginal) {
-            pendingGalleryDeletes.add(uri)
-        } else {
-            val context = getApplication<Application>()
-            viewModelScope.launch(Dispatchers.IO) { GalleryUtils.deleteFromGallery(context, uri) }
+    fun processPhoto(
+        uri: Uri,
+        fromCamera: Boolean = false,
+        galleryUri: String? = null
+    ) {
+        if (!beginMediaProcessing()) return
+
+        val context = getApplication<Application>()
+
+        viewModelScope.launch {
+            var newPath: String? = null
+
+            try {
+                newPath = ImageUtils.saveCompressed(context, uri)
+
+                if (newPath == null) {
+                    _events.send(
+                        FormEvent.Error(
+                            context.getString(R.string.error_photo_failed)
+                        )
+                    )
+                } else {
+                    discardUnsavedPhoto()
+                    _photoPath.value = newPath
+                    photoGalleryUri = galleryUri.orEmpty()
+                }
+
+            } catch (e: Exception) {
+                newPath?.let {
+                    ImageUtils.deleteFile(it)
+                }
+
+                _events.send(
+                    FormEvent.Error(ErrorMapper.message(context, e))
+                )
+
+            } finally {
+                if (fromCamera) {
+                    ImageUtils.discardCameraUri(context, uri)
+                }
+
+                _processingPhoto.value = false
+            }
         }
     }
 
-    private fun discardUnsavedVideo() {
-        val current = _videoPath.value
-        if (current.isNotBlank() && current != originalVideoPath) ImageUtils.deleteFile(current)
+    /**
+     * Menyimpan video hasil rekaman ke penyimpanan internal.
+     */
+    fun processVideo(
+        uri: Uri,
+        galleryUri: String? = null
+    ) {
+        if (!beginMediaProcessing()) return
+
+        val context = getApplication<Application>()
+
+        viewModelScope.launch {
+            var newPath: String? = null
+
+            try {
+                newPath = ImageUtils.saveVideo(context, uri)
+
+                if (newPath == null) {
+                    _events.send(
+                        FormEvent.Error(
+                            context.getString(R.string.error_video_failed)
+                        )
+                    )
+                } else {
+                    discardUnsavedVideo()
+                    _videoPath.value = newPath
+                    videoGalleryUri = galleryUri.orEmpty()
+                }
+
+            } catch (e: Exception) {
+                newPath?.let {
+                    ImageUtils.deleteFile(it)
+                }
+
+                _events.send(
+                    FormEvent.Error(ErrorMapper.message(context, e))
+                )
+
+            } finally {
+                ImageUtils.discardCameraUri(context, uri)
+                _processingPhoto.value = false
+            }
+        }
     }
 
+    /**
+     * Menghapus video dari form.
+     */
+    fun removeVideo(deleteFromGallery: Boolean = false) {
+        if (_processingPhoto.value || _saving.value) return
+
+        discardUnsavedVideo()
+
+        _videoPath.value = ""
+
+        val uri = videoGalleryUri
+        videoGalleryUri = ""
+
+        if (deleteFromGallery) {
+            queueGalleryDelete(
+                uri,
+                uri == originalVideoGalleryUri
+            )
+        }
+    }
+
+    /**
+     * Menghapus foto dari form.
+     */
     fun removePhoto(deleteFromGallery: Boolean = false) {
+        if (_processingPhoto.value || _saving.value) return
+
         discardUnsavedPhoto()
+
         _photoPath.value = ""
+
         val uri = photoGalleryUri
         photoGalleryUri = ""
-        if (deleteFromGallery) queueGalleryDelete(uri, uri == originalPhotoGalleryUri)
-    }
 
-    /** Menghapus file foto yang baru dipilih tetapi belum disimpan (bukan foto asli laporan). */
-    private fun discardUnsavedPhoto() {
-        val current = _photoPath.value
-        if (current.isNotBlank() && current != originalPhotoPath) ImageUtils.deleteFile(current)
-    }
-
-    /** Mengambil lokasi GPS saat ini, lalu mengubahnya menjadi alamat. */
-    fun fetchCurrentLocation() {
-        if (_locating.value) return
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            _locating.value = true
-            val location = LocationHelper.currentLocation(context)
-            if (location == null) {
-                _events.send(FormEvent.Error(context.getString(R.string.error_location_failed)))
-            } else {
-                _coordinates.value = location.latitude to location.longitude
-                val address = LocationHelper.addressFrom(context, location.latitude, location.longitude)
-                    ?: String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude)
-                _events.send(FormEvent.AddressResolved(address))
-            }
-            _locating.value = false
+        if (deleteFromGallery) {
+            queueGalleryDelete(
+                uri,
+                uri == originalPhotoGalleryUri
+            )
         }
     }
 
-    fun save(title: String, description: String, address: String) {
-        if (_saving.value) return
+    /**
+     * Menunda penghapusan media lama sampai laporan berhasil disimpan.
+     */
+    private fun queueGalleryDelete(
+        uri: String,
+        isOriginal: Boolean
+    ) {
+        if (uri.isBlank()) return
+
+        if (isOriginal) {
+            if (!pendingGalleryDeletes.contains(uri)) {
+                pendingGalleryDeletes.add(uri)
+            }
+        } else {
+            val context = getApplication<Application>()
+
+            viewModelScope.launch(Dispatchers.IO) {
+                deleteGalleryItem(context, uri)
+            }
+        }
+    }
+
+    /**
+     * Menghapus item galeri dan mencatat hasilnya di Logcat.
+     */
+    private fun deleteGalleryItem(
+        context: Application,
+        uri: String
+    ) {
+        val deleted = GalleryUtils.deleteFromGallery(context, uri)
+
+        if (!deleted) {
+            Log.w(
+                TAG,
+                "Gagal menghapus media dari galeri: $uri"
+            )
+        }
+    }
+
+    /**
+     * Menghapus foto sementara yang bukan foto asli laporan.
+     */
+    private fun discardUnsavedPhoto() {
+        val current = _photoPath.value
+
+        if (current.isNotBlank() && current != originalPhotoPath) {
+            ImageUtils.deleteFile(current)
+        }
+    }
+
+    /**
+     * Menghapus video sementara yang bukan video asli laporan.
+     */
+    private fun discardUnsavedVideo() {
+        val current = _videoPath.value
+
+        if (current.isNotBlank() && current != originalVideoPath) {
+            ImageUtils.deleteFile(current)
+        }
+    }
+
+    /**
+     * Mengambil lokasi GPS dan mengubahnya menjadi alamat.
+     */
+    fun fetchCurrentLocation() {
+        if (_locating.value) return
+
         val context = getApplication<Application>()
+
+        viewModelScope.launch {
+            _locating.value = true
+
+            try {
+                val location = LocationHelper.currentLocation(context)
+
+                if (location == null) {
+                    _events.send(
+                        FormEvent.Error(
+                            context.getString(R.string.error_location_failed)
+                        )
+                    )
+                } else {
+                    _coordinates.value =
+                        location.latitude to location.longitude
+
+                    val address = LocationHelper.addressFrom(
+                        context,
+                        location.latitude,
+                        location.longitude
+                    ) ?: String.format(
+                        java.util.Locale.US,
+                        "%.5f, %.5f",
+                        location.latitude,
+                        location.longitude
+                    )
+
+                    _events.send(FormEvent.AddressResolved(address))
+                }
+
+            } catch (e: Exception) {
+                _events.send(
+                    FormEvent.Error(ErrorMapper.message(context, e))
+                )
+            } finally {
+                _locating.value = false
+            }
+        }
+    }
+
+    /**
+     * Menyimpan laporan baru atau memperbarui laporan milik pengguna.
+     */
+    fun save(
+        title: String,
+        description: String,
+        address: String
+    ) {
+        if (_saving.value || _processingPhoto.value) return
+
+        val context = getApplication<Application>()
+
         viewModelScope.launch {
             _saving.value = true
+
             try {
-                val user = authRepository.currentUser ?: throw NotLoggedInException()
+                val user = authRepository.currentUser
+                    ?: throw NotLoggedInException()
+
+                /*
+                 * Jika mode edit, data lama wajib sudah berhasil dimuat.
+                 */
+                val old = if (isEdit) {
+                    if (existing == null) {
+                        throw IllegalStateException(
+                            "Data laporan belum berhasil dimuat. " +
+                                    "Silakan kembali dan coba lagi."
+                        )
+                    }
+
+                    val latest = repository.getReport(reportId)
+                        ?: throw IllegalStateException(
+                            context.getString(R.string.error_report_not_found)
+                        )
+
+                    if (latest.userId != user.id) {
+                        throw SecurityException(
+                            "Anda tidak memiliki izin mengedit laporan ini."
+                        )
+                    }
+
+                    latest
+                } else {
+                    null
+                }
+
                 val now = System.currentTimeMillis()
-                val old = existing
                 val coords = _coordinates.value
+
                 val report = Report(
                     id = old?.id ?: 0L,
                     title = title,
@@ -254,37 +487,78 @@ class FormViewModel(
                     createdAt = old?.createdAt ?: now,
                     updatedAt = now
                 )
-                if (old == null) repository.add(report) else repository.update(report)
 
-                // Foto lama yang diganti tidak dipakai lagi
-                if (old != null && old.photoPath.isNotBlank() && old.photoPath != report.photoPath) {
+                if (old == null) {
+                    repository.add(report)
+                } else {
+                    repository.update(report)
+                }
+
+                // Database sudah berhasil disimpan.
+                saved = true
+
+                // Hapus foto lama jika sudah diganti.
+                if (
+                    old != null &&
+                    old.photoPath.isNotBlank() &&
+                    old.photoPath != report.photoPath
+                ) {
                     ImageUtils.deleteFile(old.photoPath)
                 }
-                if (old != null && old.videoPath.isNotBlank() && old.videoPath != report.videoPath) {
+
+                // Hapus video lama jika sudah diganti.
+                if (
+                    old != null &&
+                    old.videoPath.isNotBlank() &&
+                    old.videoPath != report.videoPath
+                ) {
                     ImageUtils.deleteFile(old.videoPath)
                 }
+
+                /*
+                 * Penghapusan galeri dilakukan setelah database berhasil.
+                 */
                 if (pendingGalleryDeletes.isNotEmpty()) {
                     withContext(Dispatchers.IO) {
-                        pendingGalleryDeletes.forEach { GalleryUtils.deleteFromGallery(context, it) }
+                        pendingGalleryDeletes.forEach { uri ->
+                            deleteGalleryItem(context, uri)
+                        }
                     }
+
                     pendingGalleryDeletes.clear()
                 }
-                saved = true
+
                 _events.send(FormEvent.Saved(old != null))
+
             } catch (e: Exception) {
-                _events.send(FormEvent.Error(ErrorMapper.message(context, e)))
+                val message = if (e is SecurityException) {
+                    e.message
+                        ?: "Anda tidak memiliki izin mengedit laporan ini."
+                } else {
+                    ErrorMapper.message(context, e)
+                }
+
+                _events.send(FormEvent.Error(message))
+
             } finally {
                 _saving.value = false
             }
         }
     }
 
+    /**
+     * Membersihkan file media sementara ketika ViewModel dihancurkan.
+     */
     override fun onCleared() {
-        // Form ditutup tanpa menyimpan: buang foto sementara agar tidak menumpuk
         if (!saved) {
             discardUnsavedPhoto()
             discardUnsavedVideo()
         }
+
         super.onCleared()
+    }
+
+    private companion object {
+        const val TAG = "FormViewModel"
     }
 }

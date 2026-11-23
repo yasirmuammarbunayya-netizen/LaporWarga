@@ -1,3 +1,4 @@
+
 package com.example.tugashelloworld.ui.form
 
 import android.Manifest
@@ -35,37 +36,64 @@ import com.example.tugashelloworld.util.value
 
 /**
  * Form tambah / edit laporan.
- * Integrasi perangkat: Kamera, Galeri (Photo Picker), dan GPS. Semua izin diminta saat runtime,
- * dan form tetap bisa dipakai (input manual) bila izin ditolak.
+ * Integrasi perangkat: Kamera, Galeri (Photo Picker), dan GPS.
+ * Form tetap bisa digunakan dengan input manual bila izin ditolak.
  */
 class FormFragment : Fragment() {
 
     private var _binding: FragmentFormBinding? = null
     private val binding get() = _binding!!
+
     private val viewModel: FormViewModel by viewModels()
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) openCamera() else snackbar(R.string.permission_camera_denied)
+            if (granted) {
+                openCamera()
+            } else {
+                snackbar(R.string.permission_camera_denied)
+            }
         }
 
+    /**
+     * Kamera bawaan HP sebagai alternatif.
+     * File sementara dibersihkan jika pengguna membatalkan foto.
+     */
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-            if (success) viewModel.pendingCameraUri?.let { viewModel.processPhoto(it, fromCamera = true) }
+            val uri = viewModel.pendingCameraUri
+            viewModel.pendingCameraUri = null
+
+            if (success && uri != null) {
+                viewModel.processPhoto(uri, fromCamera = true)
+            } else if (uri != null) {
+                context?.let { ctx ->
+                    ImageUtils.discardCameraUri(ctx, uri)
+                }
+            }
         }
 
     private val pickMedia =
         registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            uri?.let { viewModel.processPhoto(it) }
+            uri?.let {
+                viewModel.processPhoto(it)
+            }
         }
 
     private val locationPermission =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-            if (result.values.any { it }) viewModel.fetchCurrentLocation()
-            else snackbar(R.string.permission_location_denied)
+            if (result.values.any { it }) {
+                viewModel.fetchCurrentLocation()
+            } else {
+                snackbar(R.string.permission_location_denied)
+            }
         }
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
         _binding = FragmentFormBinding.inflate(inflater, container, false)
         return binding.root
     }
@@ -74,9 +102,26 @@ class FormFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         animateWallpaper(binding.toolbar)
-        binding.toolbar.setTitle(if (viewModel.isEdit) R.string.form_title_edit else R.string.form_title_new)
-        binding.toolbar.setNavigationOnClickListener { findNavController().navigateUp() }
-        binding.btnSave.setText(if (viewModel.isEdit) R.string.save_changes else R.string.submit_report)
+
+        binding.toolbar.setTitle(
+            if (viewModel.isEdit) {
+                R.string.form_title_edit
+            } else {
+                R.string.form_title_new
+            }
+        )
+
+        binding.toolbar.setNavigationOnClickListener {
+            findNavController().navigateUp()
+        }
+
+        binding.btnSave.setText(
+            if (viewModel.isEdit) {
+                R.string.save_changes
+            } else {
+                R.string.submit_report
+            }
+        )
 
         setupCategoryChips()
         setupButtons()
@@ -84,179 +129,328 @@ class FormFragment : Fragment() {
         observeCameraResult()
     }
 
-    /** Menerima foto (atau permintaan cadangan) dari layar kamera. */
+    /**
+     * Menerima foto/video atau permintaan kamera cadangan.
+     */
     private fun observeCameraResult() {
-        val handle = findNavController().currentBackStackEntry?.savedStateHandle ?: return
+        val handle =
+            findNavController().currentBackStackEntry?.savedStateHandle ?: return
 
-        handle.getLiveData<String>(CameraFragment.RESULT_URI).observe(viewLifecycleOwner) { uriString ->
-            if (!uriString.isNullOrBlank()) {
-                val isVideo = handle.get<Boolean>(CameraFragment.RESULT_IS_VIDEO) == true
-                handle[CameraFragment.RESULT_URI] = ""
-                handle[CameraFragment.RESULT_IS_VIDEO] = false
-                val gallery = handle.get<String>(CameraFragment.RESULT_GALLERY_URI)?.takeIf { it.isNotBlank() }
-                handle[CameraFragment.RESULT_GALLERY_URI] = ""
-                val uri = Uri.parse(uriString)
-                if (isVideo) viewModel.processVideo(uri, gallery)
-                else viewModel.processPhoto(uri, fromCamera = true, galleryUri = gallery)
+        handle.getLiveData<String>(CameraFragment.RESULT_URI)
+            .observe(viewLifecycleOwner) { uriString ->
+
+                if (!uriString.isNullOrBlank()) {
+                    val isVideo =
+                        handle.get<Boolean>(CameraFragment.RESULT_IS_VIDEO) == true
+
+                    handle[CameraFragment.RESULT_URI] = ""
+                    handle[CameraFragment.RESULT_IS_VIDEO] = false
+
+                    val gallery = handle
+                        .get<String>(CameraFragment.RESULT_GALLERY_URI)
+                        ?.takeIf { it.isNotBlank() }
+
+                    handle[CameraFragment.RESULT_GALLERY_URI] = ""
+
+                    val uri = Uri.parse(uriString)
+
+                    if (isVideo) {
+                        viewModel.processVideo(uri, gallery)
+                    } else {
+                        viewModel.processPhoto(
+                            uri,
+                            fromCamera = true,
+                            galleryUri = gallery
+                        )
+                    }
+                }
             }
-        }
-        handle.getLiveData<Boolean>(CameraFragment.RESULT_FALLBACK).observe(viewLifecycleOwner) { fallback ->
-            if (fallback == true) {
-                handle[CameraFragment.RESULT_FALLBACK] = false
-                launchCamera()
+
+        handle.getLiveData<Boolean>(CameraFragment.RESULT_FALLBACK)
+            .observe(viewLifecycleOwner) { fallback ->
+
+                if (fallback == true) {
+                    handle[CameraFragment.RESULT_FALLBACK] = false
+                    launchCamera()
+                }
             }
-        }
     }
 
-    /** Pilihan kategori ditampilkan sebagai chip yang tersusun rapi di bawah label. */
+    /**
+     * Pilihan kategori laporan.
+     */
     private fun setupCategoryChips() {
         val group = binding.chipGroupCategory
         group.removeAllViews()
+
         ReportCategory.values().forEach { category ->
-            val chip = layoutInflater.inflate(R.layout.item_chip_filter, group, false) as Chip
+            val chip = layoutInflater.inflate(
+                R.layout.item_chip_filter,
+                group,
+                false
+            ) as Chip
+
             chip.id = View.generateViewId()
             chip.text = getString(category.label)
             chip.isChecked = category == viewModel.category
-            chip.setOnClickListener { viewModel.category = category }
+
+            chip.setOnClickListener {
+                viewModel.category = category
+            }
+
             group.addView(chip)
         }
     }
 
     private fun setupButtons() {
+
         binding.btnCamera.setOnClickListener {
-            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) openCamera() else cameraPermission.launch(Manifest.permission.CAMERA)
+            if (
+                ContextCompat.checkSelfPermission(
+                    requireContext(),
+                    Manifest.permission.CAMERA
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                openCamera()
+            } else {
+                cameraPermission.launch(Manifest.permission.CAMERA)
+            }
         }
+
         binding.btnGallery.setOnClickListener {
-            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        }
-        binding.btnRemovePhoto.setOnClickListener {
-            confirmRemove(viewModel.photoGalleryUri.isNotBlank()) { viewModel.removePhoto(it) }
-        }
-        binding.btnRemoveVideo.setOnClickListener {
-            confirmRemove(viewModel.videoGalleryUri.isNotBlank()) { viewModel.removeVideo(it) }
-        }
-        binding.btnLocation.setOnClickListener {
-            if (LocationHelper.hasPermission(requireContext())) viewModel.fetchCurrentLocation()
-            else locationPermission.launch(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            pickMedia.launch(
+                PickVisualMediaRequest(
+                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                )
             )
         }
-        binding.btnSave.setOnClickListener { attemptSave() }
+
+        binding.btnRemovePhoto.setOnClickListener {
+            confirmRemove(viewModel.photoGalleryUri.isNotBlank()) {
+                viewModel.removePhoto(it)
+            }
+        }
+
+        binding.btnRemoveVideo.setOnClickListener {
+            confirmRemove(viewModel.videoGalleryUri.isNotBlank()) {
+                viewModel.removeVideo(it)
+            }
+        }
+
+        binding.btnLocation.setOnClickListener {
+            if (LocationHelper.hasPermission(requireContext())) {
+                viewModel.fetchCurrentLocation()
+            } else {
+                locationPermission.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
+        }
+
+        binding.btnSave.setOnClickListener {
+            attemptSave()
+        }
     }
 
-    /** Membuka kamera di dalam aplikasi (CameraX). */
+    /**
+     * Membuka kamera dalam aplikasi.
+     */
     private fun openCamera() {
         findNavController().navigate(R.id.action_form_to_camera)
     }
 
-    /** Cadangan: kamera bawaan HP, dipakai jika CameraX tidak dapat dibuka. */
     /**
-     * Konfirmasi hapus foto/video. Jika berkas juga ada di galeri,
-     * pengguna boleh memilih menghapusnya dari galeri sekaligus.
+     * Konfirmasi penghapusan foto/video.
      */
-    private fun confirmRemove(hasGalleryCopy: Boolean, onConfirm: (deleteFromGallery: Boolean) -> Unit) {
+    private fun confirmRemove(
+        hasGalleryCopy: Boolean,
+        onConfirm: (deleteFromGallery: Boolean) -> Unit
+    ) {
         if (!hasGalleryCopy) {
             onConfirm(false)
             return
         }
+
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.remove_media_title)
             .setItems(
-                arrayOf(getString(R.string.remove_from_report_only), getString(R.string.remove_also_gallery))
-            ) { _, which -> onConfirm(which == 1) }
+                arrayOf(
+                    getString(R.string.remove_from_report_only),
+                    getString(R.string.remove_also_gallery)
+                )
+            ) { _, which ->
+                onConfirm(which == 1)
+            }
             .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
+    /**
+     * Membuka kamera bawaan sebagai alternatif.
+     */
     private fun launchCamera() {
         val uri = ImageUtils.createCameraUri(requireContext())
+
         viewModel.pendingCameraUri = uri
         takePicture.launch(uri)
     }
 
     private fun observeState() {
-        // Mode edit: isi form sekali saja dengan data yang sudah ada
+
+        // Mengisi form ketika mode edit.
         collectFlow(viewModel.editReport) { report ->
             if (report != null && !viewModel.prefilled) {
                 viewModel.prefilled = true
+
                 binding.etTitle.setText(report.title)
                 binding.etDescription.setText(report.description)
                 binding.etAddress.setText(report.address)
+
                 setupCategoryChips()
             }
         }
-        collectFlow(viewModel.loadingReport) { binding.progressLoad.isVisible = it }
 
-        collectFlow(viewModel.photoPath) { renderPhoto(it) }
-        collectFlow(viewModel.videoPath) { renderVideo(it) }
-        collectFlow(viewModel.processingPhoto) { binding.progressPhoto.isVisible = it }
+        collectFlow(viewModel.loadingReport) {
+            binding.progressLoad.isVisible = it
+        }
+
+        collectFlow(viewModel.photoPath) {
+            renderPhoto(it)
+        }
+
+        collectFlow(viewModel.videoPath) {
+            renderVideo(it)
+        }
+
+        collectFlow(viewModel.processingPhoto) {
+            binding.progressPhoto.isVisible = it
+            binding.btnCamera.isEnabled = !it
+            binding.btnGallery.isEnabled = !it
+            binding.btnSave.isEnabled = !it && !viewModel.saving.value
+        }
 
         collectFlow(viewModel.coordinates) { coords ->
-            binding.tvCoordinates.text = if (coords == null) getString(R.string.coordinates_empty)
-            else getString(R.string.coordinates_format, coords.first, coords.second)
+            binding.tvCoordinates.text =
+                if (coords == null) {
+                    getString(R.string.coordinates_empty)
+                } else {
+                    getString(
+                        R.string.coordinates_format,
+                        coords.first,
+                        coords.second
+                    )
+                }
         }
+
         collectFlow(viewModel.locating) { locating ->
             binding.btnLocation.isEnabled = !locating
-            binding.btnLocation.setText(if (locating) R.string.locating else R.string.use_current_location)
+
+            binding.btnLocation.setText(
+                if (locating) {
+                    R.string.locating
+                } else {
+                    R.string.use_current_location
+                }
+            )
         }
+
         collectFlow(viewModel.saving) { saving ->
             binding.progressSave.isVisible = saving
-            binding.btnSave.isEnabled = !saving
+            binding.btnSave.isEnabled =
+                !saving && !viewModel.processingPhoto.value
         }
 
         collectFlow(viewModel.events) { event ->
             when (event) {
+
                 is FormEvent.AddressResolved -> {
                     binding.etAddress.setText(event.address)
                     binding.tilAddress.showError(null)
                 }
+
                 is FormEvent.Saved -> {
                     Toast.makeText(
                         requireContext(),
-                        if (event.wasEdit) R.string.report_updated else R.string.report_created,
+                        if (event.wasEdit) {
+                            R.string.report_updated
+                        } else {
+                            R.string.report_created
+                        },
                         Toast.LENGTH_SHORT
                     ).show()
+
                     findNavController().navigateUp()
                 }
-                is FormEvent.Error -> snackbar(event.message)
+
+                is FormEvent.Error -> {
+                    snackbar(event.message)
+                }
             }
         }
     }
 
     private fun renderVideo(path: String) {
         val video = ImageUtils.fileOrNull(path)
+
         binding.videoContainer.isVisible = video != null
+
         if (video != null) {
-            Glide.with(this).load(video).centerCrop().into(binding.ivVideoPreview)
+            Glide.with(this)
+                .load(video)
+                .centerCrop()
+                .into(binding.ivVideoPreview)
+
             binding.ivVideoPreview.setOnClickListener {
-                VideoPlayerDialog.show(requireContext(), video.absolutePath)
+                VideoPlayerDialog.show(
+                    requireContext(),
+                    video.absolutePath
+                )
             }
+        } else {
+            Glide.with(this).clear(binding.ivVideoPreview)
+            binding.ivVideoPreview.setOnClickListener(null)
         }
     }
 
     private fun renderPhoto(path: String) {
         val photo = ImageUtils.fileOrNull(path)
+
         binding.btnRemovePhoto.isVisible = photo != null
         binding.tvPhotoHint.isVisible = photo == null
+
         if (photo != null) {
             binding.ivPreview.imageTintList = null
             binding.ivPreview.scaleType = ImageView.ScaleType.CENTER_CROP
-            Glide.with(this).load(photo).centerCrop().into(binding.ivPreview)
+
+            Glide.with(this)
+                .load(photo)
+                .centerCrop()
+                .into(binding.ivPreview)
+
             binding.tvPhotoError.isVisible = false
+
         } else {
             Glide.with(this).clear(binding.ivPreview)
+
             binding.ivPreview.scaleType = ImageView.ScaleType.CENTER
             binding.ivPreview.setImageResource(R.drawable.ic_camera)
-            binding.ivPreview.imageTintList = android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(requireContext(), R.color.md_on_surface_variant)
-            )
+
+            binding.ivPreview.imageTintList =
+                android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        requireContext(),
+                        R.color.md_on_surface_variant
+                    )
+                )
         }
     }
 
     private fun attemptSave() {
         binding.root.hideKeyboard()
+
         val title = binding.etTitle.value()
         val description = binding.etDescription.value()
         val address = binding.etAddress.value()
@@ -264,22 +458,33 @@ class FormFragment : Fragment() {
         val titleError = Validators.title(title)
         val descriptionError = Validators.description(description)
         val addressError = Validators.address(address)
+
         val photoMissing = viewModel.photoPath.value.isBlank()
 
         binding.tilTitle.showError(titleError)
         binding.tilDescription.showError(descriptionError)
         binding.tilAddress.showError(addressError)
+
         binding.tvPhotoError.isVisible = photoMissing
 
-        if (titleError != null || descriptionError != null || addressError != null || photoMissing) {
-            if (photoMissing) snackbar(R.string.error_photo_required)
+        if (
+            titleError != null ||
+            descriptionError != null ||
+            addressError != null ||
+            photoMissing
+        ) {
+            if (photoMissing) {
+                snackbar(R.string.error_photo_required)
+            }
             return
         }
+
         viewModel.save(title, description, address)
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+
         _binding = null
     }
 }

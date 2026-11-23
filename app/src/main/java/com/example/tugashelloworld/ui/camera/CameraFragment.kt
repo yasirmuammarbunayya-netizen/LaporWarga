@@ -74,6 +74,9 @@ class CameraFragment : Fragment() {
     private var capturing = false
     private var audioAsked = false
 
+    // Menandai rekaman yang harus dibuang jika halaman kamera ditutup.
+    private var discardRecordingOnFinalize = false
+
     private var zoomLiveData: LiveData<ZoomState>? = null
     private val zoomObserver = Observer<ZoomState> { state ->
         _binding?.tvZoom?.text = getString(R.string.zoom_format, state.zoomRatio)
@@ -91,19 +94,25 @@ class CameraFragment : Fragment() {
         object : OrientationEventListener(requireContext()) {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
+
                 val rotation = when (orientation) {
                     in 45..134 -> Surface.ROTATION_270
                     in 135..224 -> Surface.ROTATION_180
                     in 225..314 -> Surface.ROTATION_90
                     else -> Surface.ROTATION_0
                 }
+
                 imageCapture?.targetRotation = rotation
                 videoCapture?.targetRotation = rotation
             }
         }
     }
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
         _binding = FragmentCameraBinding.inflate(inflater, container, false)
         return binding.root
     }
@@ -112,53 +121,109 @@ class CameraFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         if (!hasPermission(Manifest.permission.CAMERA)) {
-            Toast.makeText(requireContext(), R.string.permission_camera_denied, Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                requireContext(),
+                R.string.permission_camera_denied,
+                Toast.LENGTH_SHORT
+            ).show()
             findNavController().navigateUp()
             return
         }
 
         binding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+
         setupGestures()
         setupButtons()
         updateModeUi()
 
         collectFlow(viewModel.events) { event ->
             when (event) {
-                is CameraEvent.SavedToGallery ->
-                    Toast.makeText(requireContext(), R.string.gallery_saved, Toast.LENGTH_SHORT).show()
-                is CameraEvent.GalleryFailed -> snackbar(R.string.gallery_failed)
+                is CameraEvent.SavedToGallery -> {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.gallery_saved,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                is CameraEvent.GalleryFailed -> {
+                    snackbar(R.string.gallery_failed)
+                }
             }
         }
 
-        if (viewModel.capturedPath != null) showReview() else startCamera()
+        if (viewModel.capturedPath != null) {
+            showReview()
+        } else {
+            startCamera()
+        }
     }
 
-    private fun hasPermission(permission: String) =
-        ContextCompat.checkSelfPermission(requireContext(), permission) == PackageManager.PERMISSION_GRANTED
+    private fun hasPermission(permission: String): Boolean {
+        return ContextCompat.checkSelfPermission(
+            requireContext(),
+            permission
+        ) == PackageManager.PERMISSION_GRANTED
+    }
 
-    // ------------------------------------------------------------------ Tombol & mode
+    // ------------------------------------------------------------------
+    // Tombol dan mode
+    // ------------------------------------------------------------------
 
     private fun setupButtons() {
-        binding.btnClose.setOnClickListener { findNavController().navigateUp() }
-        binding.btnShutter.setOnClickListener {
-            if (viewModel.mode == CameraMode.VIDEO) toggleRecording() else takePhoto()
+        binding.btnClose.setOnClickListener {
+            findNavController().navigateUp()
         }
-        binding.btnSwitch.setOnClickListener { switchCamera() }
-        binding.btnFlash.setOnClickListener { onFlashClick() }
-        binding.btnRetake.setOnClickListener { retake() }
-        binding.btnUse.setOnClickListener { useCapture() }
 
-        binding.tabPortrait.setOnClickListener { selectMode(CameraMode.PORTRAIT) }
-        binding.tabPhoto.setOnClickListener { selectMode(CameraMode.PHOTO) }
-        binding.tabVideo.setOnClickListener { selectMode(CameraMode.VIDEO) }
+        binding.btnShutter.setOnClickListener {
+            if (viewModel.mode == CameraMode.VIDEO) {
+                toggleRecording()
+            } else {
+                takePhoto()
+            }
+        }
+
+        binding.btnSwitch.setOnClickListener {
+            switchCamera()
+        }
+
+        binding.btnFlash.setOnClickListener {
+            onFlashClick()
+        }
+
+        binding.btnRetake.setOnClickListener {
+            retake()
+        }
+
+        binding.btnUse.setOnClickListener {
+            useCapture()
+        }
+
+        binding.tabPortrait.setOnClickListener {
+            selectMode(CameraMode.PORTRAIT)
+        }
+
+        binding.tabPhoto.setOnClickListener {
+            selectMode(CameraMode.PHOTO)
+        }
+
+        binding.tabVideo.setOnClickListener {
+            selectMode(CameraMode.VIDEO)
+        }
     }
 
     private fun selectMode(mode: CameraMode) {
         if (recording != null || capturing || viewModel.mode == mode) return
+
         viewModel.mode = mode
         viewModel.torchOn = false
+
         updateModeUi()
-        if (mode == CameraMode.VIDEO) requestAudioIfNeeded()
+
+        if (mode == CameraMode.VIDEO) {
+            requestAudioIfNeeded()
+        }
+
         bindUseCases()
     }
 
@@ -173,14 +238,26 @@ class CameraFragment : Fragment() {
         styleTab(binding.tabPortrait, viewModel.mode == CameraMode.PORTRAIT)
         styleTab(binding.tabPhoto, viewModel.mode == CameraMode.PHOTO)
         styleTab(binding.tabVideo, viewModel.mode == CameraMode.VIDEO)
+
         updateShutterUi()
         updateFlashIcon()
+
         binding.tvModeHint.isVisible = false
     }
 
     private fun styleTab(tab: TextView, selected: Boolean) {
-        tab.setTextColor(if (selected) 0xFFFFD54F.toInt() else 0xB3FFFFFF.toInt())
-        tab.setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        tab.setTextColor(
+            if (selected) 0xFFFFD54F.toInt() else 0xB3FFFFFF.toInt()
+        )
+
+        tab.setTypeface(
+            null,
+            if (selected) {
+                android.graphics.Typeface.BOLD
+            } else {
+                android.graphics.Typeface.NORMAL
+            }
+        )
     }
 
     private fun updateShutterUi() {
@@ -203,14 +280,20 @@ class CameraFragment : Fragment() {
                 ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
                 else -> ImageCapture.FLASH_MODE_AUTO
             }
+
             imageCapture?.flashMode = viewModel.flashMode
         }
+
         updateFlashIcon()
     }
 
     private fun updateFlashIcon() {
         val icon = if (viewModel.mode == CameraMode.VIDEO) {
-            if (viewModel.torchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
+            if (viewModel.torchOn) {
+                R.drawable.ic_flash_on
+            } else {
+                R.drawable.ic_flash_off
+            }
         } else {
             when (viewModel.flashMode) {
                 ImageCapture.FLASH_MODE_ON -> R.drawable.ic_flash_on
@@ -218,92 +301,142 @@ class CameraFragment : Fragment() {
                 else -> R.drawable.ic_flash_auto
             }
         }
+
         binding.btnFlash.setImageResource(icon)
     }
 
     private fun switchCamera() {
         if (recording != null) return
+
         viewModel.lensFacing =
-            if (viewModel.lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT
-            else CameraSelector.LENS_FACING_BACK
+            if (viewModel.lensFacing == CameraSelector.LENS_FACING_BACK) {
+                CameraSelector.LENS_FACING_FRONT
+            } else {
+                CameraSelector.LENS_FACING_BACK
+            }
+
         viewModel.torchOn = false
         bindUseCases()
     }
 
-    // ------------------------------------------------------------------ Kamera
+    // ------------------------------------------------------------------
+    // Kamera
+    // ------------------------------------------------------------------
 
     private fun startCamera() {
         val context = requireContext()
         val future = ProcessCameraProvider.getInstance(context)
+
         future.addListener({
             if (_binding == null) return@addListener
+
             val provider = try {
                 future.get()
             } catch (e: Exception) {
                 fallbackToSystemCamera()
                 return@addListener
             }
+
             cameraProvider = provider
 
-            // Extensions (efek potret/bokeh) bersifat opsional: jika gagal, mode potret tetap jalan tanpa blur.
+            // Extensions untuk efek potret bersifat opsional.
             val extFuture = ExtensionsManager.getInstanceAsync(context, provider)
+
             extFuture.addListener({
                 if (_binding == null) return@addListener
-                extensionsManager = runCatching { extFuture.get() }.getOrNull()
+
+                extensionsManager = runCatching {
+                    extFuture.get()
+                }.getOrNull()
+
                 bindUseCases()
             }, ContextCompat.getMainExecutor(context))
+
         }, ContextCompat.getMainExecutor(context))
     }
 
-    private fun hasLens(provider: ProcessCameraProvider, facing: Int): Boolean = try {
-        provider.hasCamera(CameraSelector.Builder().requireLensFacing(facing).build())
-    } catch (e: Exception) {
-        false
+    private fun hasLens(
+        provider: ProcessCameraProvider,
+        facing: Int
+    ): Boolean {
+        return try {
+            provider.hasCamera(
+                CameraSelector.Builder()
+                    .requireLensFacing(facing)
+                    .build()
+            )
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun bindUseCases() {
         val provider = cameraProvider ?: return
+
         if (_binding == null || recording != null) return
 
         val hasBack = hasLens(provider, CameraSelector.LENS_FACING_BACK)
         val hasFront = hasLens(provider, CameraSelector.LENS_FACING_FRONT)
+
         if (!hasBack && !hasFront) {
             fallbackToSystemCamera()
             return
         }
+
         if (viewModel.lensFacing == CameraSelector.LENS_FACING_BACK && !hasBack) {
             viewModel.lensFacing = CameraSelector.LENS_FACING_FRONT
-        } else if (viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT && !hasFront) {
+        } else if (
+            viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT && !hasFront
+        ) {
             viewModel.lensFacing = CameraSelector.LENS_FACING_BACK
         }
+
         binding.btnSwitch.isVisible = hasBack && hasFront
 
-        val baseSelector = CameraSelector.Builder().requireLensFacing(viewModel.lensFacing).build()
+        val baseSelector = CameraSelector.Builder()
+            .requireLensFacing(viewModel.lensFacing)
+            .build()
+
         val preview = Preview.Builder().build().also {
             it.setSurfaceProvider(binding.previewView.surfaceProvider)
         }
 
-        // Mode potret: coba efek blur (BOKEH) bila perangkat mendukung
+        // Mode potret: coba efek blur BOKEH jika perangkat mendukung.
         var selector = baseSelector
         var portraitEffect = false
+
         if (viewModel.mode == CameraMode.PORTRAIT) {
             val manager = extensionsManager
+
             val available = try {
-                manager?.isExtensionAvailable(baseSelector, ExtensionMode.BOKEH) == true
+                manager?.isExtensionAvailable(
+                    baseSelector,
+                    ExtensionMode.BOKEH
+                ) == true
             } catch (e: Exception) {
                 false
             }
+
             if (manager != null && available) {
-                selector = manager.getExtensionEnabledCameraSelector(baseSelector, ExtensionMode.BOKEH)
+                selector = manager.getExtensionEnabledCameraSelector(
+                    baseSelector,
+                    ExtensionMode.BOKEH
+                )
                 portraitEffect = true
             }
         }
 
         if (!tryBind(provider, selector, preview)) {
-            // Gagal dengan efek? ulangi tanpa efek. Gagal tanpa efek? pakai kamera bawaan HP.
-            if (portraitEffect && tryBind(provider, baseSelector, Preview.Builder().build().also {
-                    it.setSurfaceProvider(binding.previewView.surfaceProvider)
-                })
+            // Jika efek gagal, coba kamera tanpa efek.
+            if (
+                portraitEffect &&
+                tryBind(
+                    provider,
+                    baseSelector,
+                    Preview.Builder().build().also {
+                        it.setSurfaceProvider(binding.previewView.surfaceProvider)
+                    }
+                )
             ) {
                 portraitEffect = false
             } else {
@@ -311,13 +444,19 @@ class CameraFragment : Fragment() {
                 return
             }
         }
+
         onCameraBound(portraitEffect)
     }
 
-    /** Mengikat use case sesuai mode. Mengembalikan false jika gagal. */
-    private fun tryBind(provider: ProcessCameraProvider, selector: CameraSelector, preview: Preview): Boolean {
+    /** Mengikat use case sesuai mode kamera. */
+    private fun tryBind(
+        provider: ProcessCameraProvider,
+        selector: CameraSelector,
+        preview: Preview
+    ): Boolean {
         return try {
             provider.unbindAll()
+
             if (viewModel.mode == CameraMode.VIDEO) {
                 val recorder = Recorder.Builder()
                     .setQualitySelector(
@@ -327,8 +466,16 @@ class CameraFragment : Fragment() {
                         )
                     )
                     .build()
+
                 val capture = VideoCapture.withOutput(recorder)
-                camera = provider.bindToLifecycle(viewLifecycleOwner, selector, preview, capture)
+
+                camera = provider.bindToLifecycle(
+                    viewLifecycleOwner,
+                    selector,
+                    preview,
+                    capture
+                )
+
                 videoCapture = capture
                 imageCapture = null
             } else {
@@ -337,10 +484,18 @@ class CameraFragment : Fragment() {
                     .setJpegQuality(95)
                     .setFlashMode(viewModel.flashMode)
                     .build()
-                camera = provider.bindToLifecycle(viewLifecycleOwner, selector, preview, capture)
+
+                camera = provider.bindToLifecycle(
+                    viewLifecycleOwner,
+                    selector,
+                    preview,
+                    capture
+                )
+
                 imageCapture = capture
                 videoCapture = null
             }
+
             true
         } catch (e: Exception) {
             false
@@ -349,39 +504,74 @@ class CameraFragment : Fragment() {
 
     private fun onCameraBound(portraitEffect: Boolean) {
         val cam = camera ?: return
+
         binding.btnFlash.isVisible = cam.cameraInfo.hasFlashUnit()
-        if (viewModel.mode == CameraMode.VIDEO) cam.cameraControl.enableTorch(viewModel.torchOn)
+
+        if (viewModel.mode == CameraMode.VIDEO) {
+            cam.cameraControl.enableTorch(viewModel.torchOn)
+        }
 
         zoomLiveData?.removeObserver(zoomObserver)
-        zoomLiveData = cam.cameraInfo.zoomState.also { it.observe(viewLifecycleOwner, zoomObserver) }
+
+        zoomLiveData = cam.cameraInfo.zoomState.also {
+            it.observe(viewLifecycleOwner, zoomObserver)
+        }
 
         if (viewModel.mode == CameraMode.PORTRAIT) {
             if (!portraitEffect) {
-                // Tanpa efek blur: bingkai potret dengan zoom ringan (seperti lensa potret)
-                cam.cameraInfo.zoomState.value?.let { z ->
-                    cam.cameraControl.setZoomRatio(1.5f.coerceIn(z.minZoomRatio, z.maxZoomRatio))
+                // Tanpa efek blur, gunakan zoom ringan.
+                cam.cameraInfo.zoomState.value?.let { zoom ->
+                    cam.cameraControl.setZoomRatio(
+                        1.5f.coerceIn(
+                            zoom.minZoomRatio,
+                            zoom.maxZoomRatio
+                        )
+                    )
                 }
             }
-            showHint(if (portraitEffect) R.string.portrait_effect_on else R.string.portrait_effect_off)
+
+            showHint(
+                if (portraitEffect) {
+                    R.string.portrait_effect_on
+                } else {
+                    R.string.portrait_effect_off
+                }
+            )
         }
+
         updateFlashIcon()
     }
 
     private fun showHint(resId: Int) {
         binding.tvModeHint.setText(resId)
         binding.tvModeHint.isVisible = true
-        binding.tvModeHint.postDelayed({ _binding?.tvModeHint?.isVisible = false }, 2800)
+
+        binding.tvModeHint.postDelayed({
+            _binding?.tvModeHint?.isVisible = false
+        }, 2800)
     }
 
-    /** Jika CameraX gagal di perangkat ini, minta Form memakai kamera bawaan HP. */
+    /** Jika CameraX gagal, Form memakai kamera bawaan HP. */
     private fun fallbackToSystemCamera() {
         if (!isAdded || _binding == null) return
-        Toast.makeText(requireContext(), R.string.camera_unavailable, Toast.LENGTH_SHORT).show()
-        findNavController().previousBackStackEntry?.savedStateHandle?.set(RESULT_FALLBACK, true)
+
+        Toast.makeText(
+            requireContext(),
+            R.string.camera_unavailable,
+            Toast.LENGTH_SHORT
+        ).show()
+
+        findNavController()
+            .previousBackStackEntry
+            ?.savedStateHandle
+            ?.set(RESULT_FALLBACK, true)
+
         findNavController().navigateUp()
     }
 
-    // ------------------------------------------------------------------ Gestur
+    // ------------------------------------------------------------------
+    // Gestur
+    // ------------------------------------------------------------------
 
     private fun setupGestures() {
         val scaleDetector = ScaleGestureDetector(
@@ -390,16 +580,23 @@ class CameraFragment : Fragment() {
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     val cam = camera ?: return true
                     val zoom = cam.cameraInfo.zoomState.value ?: return true
+
                     val ratio = (zoom.zoomRatio * detector.scaleFactor)
-                        .coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
+                        .coerceIn(
+                            zoom.minZoomRatio,
+                            zoom.maxZoomRatio
+                        )
+
                     cam.cameraControl.setZoomRatio(ratio)
                     return true
                 }
             }
         )
+
         val tapDetector = GestureDetector(
             requireContext(),
             object : GestureDetector.SimpleOnGestureListener() {
+
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onSingleTapUp(e: MotionEvent): Boolean {
@@ -408,20 +605,34 @@ class CameraFragment : Fragment() {
                 }
             }
         )
+
         binding.previewView.setOnTouchListener { view, event ->
             scaleDetector.onTouchEvent(event)
-            if (!scaleDetector.isInProgress) tapDetector.onTouchEvent(event)
-            if (event.action == MotionEvent.ACTION_UP) view.performClick()
+
+            if (!scaleDetector.isInProgress) {
+                tapDetector.onTouchEvent(event)
+            }
+
+            if (event.action == MotionEvent.ACTION_UP) {
+                view.performClick()
+            }
+
             true
         }
     }
 
     private fun focusAt(x: Float, y: Float) {
         val cam = camera ?: return
+
         val point = binding.previewView.meteringPointFactory.createPoint(x, y)
+
         val action = FocusMeteringAction.Builder(
-            point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-        ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
+            point,
+            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+        )
+            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+            .build()
+
         cam.cameraControl.startFocusAndMetering(action)
         showFocusRing(x, y)
     }
@@ -429,41 +640,71 @@ class CameraFragment : Fragment() {
     private fun showFocusRing(x: Float, y: Float) {
         binding.focusRing.apply {
             animate().cancel()
+
             translationX = x - width / 2f
             translationY = y - height / 2f
+
             alpha = 1f
             scaleX = 1.4f
             scaleY = 1.4f
             visibility = View.VISIBLE
-            animate().scaleX(1f).scaleY(1f).setDuration(200).withEndAction {
-                animate().alpha(0f).setStartDelay(600).setDuration(250).start()
-            }.start()
+
+            animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(200)
+                .withEndAction {
+                    animate()
+                        .alpha(0f)
+                        .setStartDelay(600)
+                        .setDuration(250)
+                        .start()
+                }
+                .start()
         }
     }
 
-    // ------------------------------------------------------------------ Foto
+    // ------------------------------------------------------------------
+    // Foto
+    // ------------------------------------------------------------------
 
     private fun takePhoto() {
         val capture = imageCapture ?: return
+
         if (capturing) return
+
         capturing = true
         binding.btnShutter.isEnabled = false
 
         val file = newTempFile("camera_", ".jpg")
+
         val metadata = ImageCapture.Metadata().apply {
-            isReversedHorizontal = viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT
+            isReversedHorizontal =
+                viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT
         }
-        val options = ImageCapture.OutputFileOptions.Builder(file).setMetadata(metadata).build()
+
+        val options = ImageCapture.OutputFileOptions.Builder(file)
+            .setMetadata(metadata)
+            .build()
 
         capture.takePicture(
             options,
             ContextCompat.getMainExecutor(requireContext()),
             object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+
+                override fun onImageSaved(
+                    output: ImageCapture.OutputFileResults
+                ) {
                     capturing = false
+
                     viewModel.capturedPath = file.absolutePath
                     viewModel.capturedIsVideo = false
-                    viewModel.persistToGallery(file.absolutePath, isVideo = false)
+
+                    viewModel.persistToGallery(
+                        file.absolutePath,
+                        isVideo = false
+                    )
+
                     if (_binding != null) {
                         playShutterFlash()
                         showReview()
@@ -473,6 +714,7 @@ class CameraFragment : Fragment() {
                 override fun onError(exception: ImageCaptureException) {
                     capturing = false
                     file.delete()
+
                     if (_binding != null) {
                         binding.btnShutter.isEnabled = true
                         snackbar(R.string.camera_capture_failed)
@@ -490,15 +732,24 @@ class CameraFragment : Fragment() {
         }
     }
 
-    private fun newTempFile(prefix: String, suffix: String): File {
-        val dir = File(requireContext().cacheDir, "images").apply { mkdirs() }
+    private fun newTempFile(
+        prefix: String,
+        suffix: String
+    ): File {
+        val dir = File(requireContext().cacheDir, "images").apply {
+            mkdirs()
+        }
+
         return File.createTempFile(prefix, suffix, dir)
     }
 
-    // ------------------------------------------------------------------ Video
+    // ------------------------------------------------------------------
+    // Video
+    // ------------------------------------------------------------------
 
     private fun toggleRecording() {
         val active = recording
+
         if (active != null) {
             active.stop()
         } else {
@@ -509,70 +760,128 @@ class CameraFragment : Fragment() {
     @SuppressLint("MissingPermission")
     private fun startRecording() {
         val capture = videoCapture ?: return
+
         val file = newTempFile("video_", ".mp4")
+
         val options = FileOutputOptions.Builder(file)
             .setDurationLimitMillis(MAX_VIDEO_MS)
             .setFileSizeLimit(MAX_VIDEO_BYTES)
             .build()
 
-        var pending = capture.output.prepareRecording(requireContext(), options)
-        if (hasPermission(Manifest.permission.RECORD_AUDIO)) pending = pending.withAudioEnabled()
+        var pending = capture.output.prepareRecording(
+            requireContext(),
+            options
+        )
 
-        recording = pending.start(ContextCompat.getMainExecutor(requireContext())) { event ->
+        if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            pending = pending.withAudioEnabled()
+        }
+
+        // Rekaman baru tidak ditandai untuk dibuang.
+        discardRecordingOnFinalize = false
+
+        recording = pending.start(
+            ContextCompat.getMainExecutor(requireContext())
+        ) { event ->
             onVideoEvent(event, file)
         }
+
         setRecordingUi(true)
     }
 
-    private fun onVideoEvent(event: VideoRecordEvent, file: File) {
+    private fun onVideoEvent(
+        event: VideoRecordEvent,
+        file: File
+    ) {
         when (event) {
+
             is VideoRecordEvent.Status -> {
-                val seconds = TimeUnit.NANOSECONDS.toSeconds(event.recordingStats.recordedDurationNanos)
+                val seconds = TimeUnit.NANOSECONDS.toSeconds(
+                    event.recordingStats.recordedDurationNanos
+                )
+
                 _binding?.tvTimer?.text = formatTimer(seconds)
             }
+
             is VideoRecordEvent.Finalize -> {
                 recording = null
-                val limitReached = event.error == VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED ||
-                    event.error == VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED
+
+                // Jika halaman ditutup saat merekam, buang file video.
+                val shouldDiscard = discardRecordingOnFinalize
+                discardRecordingOnFinalize = false
+
+                if (shouldDiscard) {
+                    file.delete()
+                    return
+                }
+
+                val limitReached =
+                    event.error == VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED ||
+                            event.error == VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED
+
                 val success = !event.hasError() || limitReached
+
                 if (success && file.exists() && file.length() > 0) {
                     viewModel.capturedPath = file.absolutePath
                     viewModel.capturedIsVideo = true
-                    viewModel.persistToGallery(file.absolutePath, isVideo = true)
+
+                    viewModel.persistToGallery(
+                        file.absolutePath,
+                        isVideo = true
+                    )
+
                     if (_binding != null) {
                         setRecordingUi(false)
                         showReview()
                     }
                 } else {
                     file.delete()
+
                     if (_binding != null) {
                         setRecordingUi(false)
                         snackbar(R.string.camera_capture_failed)
                     }
                 }
             }
+
             else -> Unit
         }
     }
 
-    private fun formatTimer(seconds: Long): String =
-        String.format(java.util.Locale.US, "%02d:%02d / %02d:%02d", seconds / 60, seconds % 60,
-            MAX_VIDEO_MS / 60_000, (MAX_VIDEO_MS / 1000) % 60)
+    private fun formatTimer(seconds: Long): String {
+        return String.format(
+            java.util.Locale.US,
+            "%02d:%02d / %02d:%02d",
+            seconds / 60,
+            seconds % 60,
+            MAX_VIDEO_MS / 60_000,
+            (MAX_VIDEO_MS / 1000) % 60
+        )
+    }
 
     private fun setRecordingUi(isRecording: Boolean) {
         binding.tvTimer.isVisible = isRecording
-        if (isRecording) binding.tvTimer.text = formatTimer(0)
+
+        if (isRecording) {
+            binding.tvTimer.text = formatTimer(0)
+        }
+
         binding.layoutModes.isInvisible = isRecording
         binding.btnSwitch.isInvisible = isRecording
+
         updateShutterUi()
     }
 
-    // ------------------------------------------------------------------ Tinjau hasil
+    // ------------------------------------------------------------------
+    // Tinjau hasil
+    // ------------------------------------------------------------------
 
     private fun showReview() {
         val path = viewModel.capturedPath ?: return
+
         cameraProvider?.unbindAll()
         camera = null
+
         binding.previewView.isVisible = false
         binding.layoutCameraTools.isVisible = false
         binding.cameraControls.isVisible = false
@@ -582,52 +891,83 @@ class CameraFragment : Fragment() {
         if (viewModel.capturedIsVideo) {
             binding.ivReview.isVisible = false
             binding.vvReview.isVisible = true
+
             binding.vvReview.setVideoPath(path)
+
             binding.vvReview.setOnPreparedListener { player ->
                 player.isLooping = true
                 binding.vvReview.start()
             }
+
             binding.vvReview.setOnClickListener {
-                if (binding.vvReview.isPlaying) binding.vvReview.pause() else binding.vvReview.start()
+                if (binding.vvReview.isPlaying) {
+                    binding.vvReview.pause()
+                } else {
+                    binding.vvReview.start()
+                }
             }
         } else {
             binding.vvReview.isVisible = false
             binding.ivReview.isVisible = true
-            Glide.with(this).load(File(path)).into(binding.ivReview)
+
+            Glide.with(this)
+                .load(File(path))
+                .into(binding.ivReview)
         }
     }
 
     private fun retake() {
         binding.vvReview.stopPlayback()
-        // Hapus hasil ini, termasuk salinannya di galeri
+
+        // Hapus hasil ini, termasuk salinannya di galeri.
         viewModel.discardCapture()
-        Toast.makeText(requireContext(), R.string.capture_deleted, Toast.LENGTH_SHORT).show()
+
+        Toast.makeText(
+            requireContext(),
+            R.string.capture_deleted,
+            Toast.LENGTH_SHORT
+        ).show()
+
         binding.ivReview.isVisible = false
         binding.vvReview.isVisible = false
         binding.reviewControls.isVisible = false
+
         binding.previewView.isVisible = true
         binding.layoutCameraTools.isVisible = true
         binding.cameraControls.isVisible = true
         binding.btnShutter.isEnabled = true
+
         updateModeUi()
         startCamera()
     }
 
     private fun useCapture() {
         val path = viewModel.capturedPath ?: return
+
         binding.vvReview.stopPlayback()
+
         val uri = FileProvider.getUriForFile(
-            requireContext(), "${requireContext().packageName}.fileprovider", File(path)
+            requireContext(),
+            "${requireContext().packageName}.fileprovider",
+            File(path)
         )
+
         viewModel.handedOff = true
-        val handle = findNavController().previousBackStackEntry?.savedStateHandle
+
+        val handle = findNavController()
+            .previousBackStackEntry
+            ?.savedStateHandle
+
         handle?.set(RESULT_IS_VIDEO, viewModel.capturedIsVideo)
         handle?.set(RESULT_GALLERY_URI, viewModel.galleryUri.orEmpty())
         handle?.set(RESULT_URI, uri.toString())
+
         findNavController().navigateUp()
     }
 
-    // ------------------------------------------------------------------ Lifecycle
+    // ------------------------------------------------------------------
+    // Lifecycle
+    // ------------------------------------------------------------------
 
     override fun onStart() {
         super.onStart()
@@ -640,13 +980,29 @@ class CameraFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        recording?.stop()
+        // Tandai rekaman aktif agar callback Finalize membuang file,
+        // bukan menyimpannya ke galeri.
+        if (recording != null) {
+            discardRecordingOnFinalize = true
+            recording?.stop()
+        }
+
         recording = null
+
         zoomLiveData?.removeObserver(zoomObserver)
         zoomLiveData = null
+
+        // Lepaskan seluruh use case CameraX saat tampilan dihancurkan.
+        runCatching {
+            cameraProvider?.unbindAll()
+        }
+
+        cameraProvider = null
+        extensionsManager = null
         camera = null
         imageCapture = null
         videoCapture = null
+
         super.onDestroyView()
         _binding = null
     }
