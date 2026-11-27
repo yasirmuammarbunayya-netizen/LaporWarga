@@ -5,34 +5,66 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Entitas data utama: Laporan kerusakan fasilitas umum.
+ * Entitas data utama: laporan kerusakan fasilitas umum.
  * Disimpan di tabel SQLite "reports" melalui Room.
- *
- * Atribut: id, title, description, category, address, latitude, longitude,
- * photoPath, videoPath, photoGalleryUri, videoGalleryUri, status, userId, userName, createdAt, updatedAt.
  */
-@Entity(tableName = "reports", indices = [Index("userId")])
+@Entity(
+    tableName = "reports",
+    indices = [Index("userId")]
+)
 data class Report(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0L,
+
     val title: String = "",
     val description: String = "",
     val category: String = ReportCategory.OTHER.name,
     val address: String = "",
+
+    // Koordinat lokasi laporan
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
+
+    // Media laporan
     val photoPath: String = "",
     val videoPath: String = "",
     val photoGalleryUri: String = "",
     val videoGalleryUri: String = "",
+
+    // Status laporan
     val status: String = ReportStatus.SENT.name,
+
+    // Informasi pengguna
     val userId: Long = 0L,
     val userName: String = "",
+
+    // Waktu pembuatan dan pembaruan
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 )
 
-fun Report.categoryEnum(): ReportCategory = ReportCategory.fromName(category)
+/**
+ * Mengubah kategori laporan menjadi enum.
+ */
+fun Report.categoryEnum(): ReportCategory =
+    ReportCategory.fromName(category)
 
-fun Report.statusEnum(): ReportStatus = ReportStatus.fromName(status)
+/**
+ * Mengubah status laporan menjadi enum.
+ */
+fun Report.statusEnum(): ReportStatus =
+    ReportStatus.fromName(status)
 
-fun Report.hasLocation(): Boolean = latitude != 0.0 || longitude != 0.0
+/**
+ * Memeriksa apakah laporan memiliki koordinat lokasi.
+ * Pasangan 0.0, 0.0 digunakan sebagai penanda
+ * bahwa koordinat belum tersedia.
+ */
+fun Report.hasLocation(): Boolean {
+    return latitude.isFinite() &&
+            longitude.isFinite() &&
+            latitude in -90.0..90.0 &&
+            longitude in -180.0..180.0 &&
+            (latitude != 0.0 || longitude != 0.0)
+}

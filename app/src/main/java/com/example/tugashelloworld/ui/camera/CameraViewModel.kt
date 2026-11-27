@@ -1,4 +1,3 @@
-
 package com.example.tugashelloworld.ui.camera
 
 import android.app.Application
@@ -8,7 +7,9 @@ import androidx.camera.core.ImageCapture
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tugashelloworld.util.GalleryUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -16,9 +17,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Mode kamera: Potret, Foto biasa, atau Video.
- */
+/** true jika berjalan di emulator Android. */
+fun isEmulator(): Boolean =
+    android.os.Build.FINGERPRINT.startsWith("generic") ||
+            android.os.Build.FINGERPRINT.contains("emulator") ||
+            android.os.Build.HARDWARE.let { it.contains("goldfish") || it.contains("ranchu") } ||
+            android.os.Build.MODEL.contains("Emulator") ||
+            android.os.Build.MODEL.contains("Android SDK built for") ||
+            android.os.Build.PRODUCT.contains("sdk_gphone") ||
+            android.os.Build.PRODUCT.contains("emu")
+
 enum class CameraMode {
     PORTRAIT,
     PHOTO,
@@ -28,12 +36,9 @@ enum class CameraMode {
 sealed interface CameraEvent {
     object SavedToGallery : CameraEvent
     object GalleryFailed : CameraEvent
+    object SnapshotSaved : CameraEvent
 }
 
-/**
- * Mengelola state kamera, hasil foto/video,
- * dan penyimpanan media ke galeri perangkat.
- */
 class CameraViewModel(
     application: Application
 ) : AndroidViewModel(application) {
@@ -46,39 +51,64 @@ class CameraViewModel(
 
     var torchOn: Boolean = false
 
-    /**
-     * Path file hasil jepretan atau rekaman.
-     * Setter tetap public karena digunakan CameraFragment.
-     */
+    /** Indeks kualitas video: 0 = FHD, 1 = HD, 2 = SD. Emulator mulai dari HD (lebih stabil). */
+    var videoQualityLevel: Int = if (isEmulator()) 1 else 0
+
+    /** Dimatikan otomatis jika perekaman gagal karena mikrofon (mis. emulator). */
+    var videoAudioEnabled: Boolean = true
+
+    var videoFailCount: Int = 0
+
+    /** Foto saat merekam memakai ImageCapture; dimatikan otomatis jika membuat rekaman gagal. */
+    var snapshotViaImageCapture: Boolean = true
+
     var capturedPath: String? = null
 
     var capturedIsVideo: Boolean = false
 
-    /**
-     * URI item galeri untuk hasil yang sedang ditinjau.
-     */
     var galleryUri: String? = null
         private set
 
-    /**
-     * Menandakan hasil sudah diserahkan ke FormFragment.
-     */
     var handedOff: Boolean = false
 
-    private val _events = Channel<CameraEvent>(Channel.BUFFERED)
+    private var gallerySaveJob: Job? = null
+    private var gallerySavePath: String? = null
+    private var gallerySaveSucceeded = false
 
+    private val _events = Channel<CameraEvent>(Channel.BUFFERED)
     val events: Flow<CameraEvent> = _events.receiveAsFlow()
 
     /**
-     * Menyimpan hasil foto/video ke galeri.
+     * Foto yang diambil saat merekam video: langsung disimpan ke Galeri
+     * tanpa mengganti video yang sedang direkam.
+     */
+    fun saveSnapshotToGallery(file: File) {
+        viewModelScope.launch {
+            try {
+                val uri = GalleryUtils.saveToGallery(getApplication(), file, false)
+                _events.send(
+                    if (uri != null) CameraEvent.SnapshotSaved else CameraEvent.GalleryFailed
+                )
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
+    /**
+     * Menyalin hasil kamera ke Galeri.
      */
     fun persistToGallery(
         path: String,
         isVideo: Boolean
     ) {
-        galleryUri = null
+        gallerySaveJob?.cancel()
 
-        viewModelScope.launch {
+        galleryUri = null
+        gallerySavePath = path
+        gallerySaveSucceeded = false
+
+        gallerySaveJob = viewModelScope.launch {
             try {
                 val uri = GalleryUtils.saveToGallery(
                     getApplication(),
@@ -93,7 +123,8 @@ class CameraViewModel(
                     return@launch
                 }
 
-                // Hasil sudah diganti atau dibatalkan.
+                // Jika hasil kamera sudah diganti atau dibatalkan,
+                // hapus salinan Galeri yang baru dibuat.
                 if (capturedPath != path) {
                     withContext(Dispatchers.IO) {
                         val deleted = GalleryUtils.deleteFromGallery(
@@ -110,11 +141,19 @@ class CameraViewModel(
                     }
                 } else {
                     galleryUri = uri.toString()
+                    gallerySaveSucceeded = true
                     _events.send(CameraEvent.SavedToGallery)
                 }
 
-            } catch (_: Exception) {
-                Log.e(TAG, "Gagal menyimpan hasil kamera ke galeri")
+            } catch (e: CancellationException) {
+                throw e
+
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "Gagal menyimpan hasil kamera ke galeri",
+                    e
+                )
 
                 if (capturedPath == path) {
                     _events.send(CameraEvent.GalleryFailed)
@@ -124,38 +163,66 @@ class CameraViewModel(
     }
 
     /**
+     * Menunggu proses penyimpanan Galeri untuk hasil kamera tertentu.
+     */
+    suspend fun awaitGallerySave(path: String): Boolean {
+        if (capturedPath != path) return false
+
+        if (gallerySavePath == path) {
+            gallerySaveJob?.join()
+        }
+
+        return capturedPath == path &&
+                gallerySavePath == path &&
+                gallerySaveSucceeded &&
+                !galleryUri.isNullOrBlank()
+    }
+
+    /**
      * Menghapus hasil yang sedang ditinjau,
-     * termasuk salinannya di galeri jika sudah tersedia.
+     * termasuk salinannya di Galeri.
      */
     fun discardCapture() {
         val path = capturedPath
         val gallery = galleryUri
+
+        // Batalkan proses penyimpanan yang masih berlangsung.
+        gallerySaveJob?.cancel()
+        gallerySaveJob = null
 
         capturedPath = null
         galleryUri = null
         capturedIsVideo = false
         handedOff = false
 
-        viewModelScope.launch(Dispatchers.IO) {
+        gallerySaveSucceeded = false
+        gallerySavePath = null
 
-            path?.let {
+        viewModelScope.launch(Dispatchers.IO) {
+            path?.let { filePath ->
                 val deleted = runCatching {
-                    File(it).delete()
+                    File(filePath).delete()
                 }.getOrDefault(false)
 
                 if (!deleted) {
-                    Log.w(TAG, "Gagal menghapus file sementara: $it")
+                    Log.w(
+                        TAG,
+                        "Gagal menghapus file sementara: $filePath"
+                    )
                 }
             }
 
-            gallery?.let {
+            gallery?.let { uri ->
                 val deleted = GalleryUtils.deleteFromGallery(
                     getApplication(),
-                    it
+                    uri
                 )
 
                 if (!deleted) {
-                    Log.w(TAG, "Gagal menghapus media galeri: $it")
+                    Log.w(
+                        TAG,
+                        "Gagal menghapus media galeri: $uri"
+                    )
                 }
             }
         }
@@ -163,15 +230,19 @@ class CameraViewModel(
 
     /**
      * Membersihkan file sementara ketika ViewModel dihancurkan.
-     * Salinan galeri tetap dipertahankan.
+     * Salinan Galeri tetap dipertahankan.
      */
     override fun onCleared() {
         if (!handedOff) {
             capturedPath?.let { path ->
                 runCatching {
                     File(path).delete()
-                }.onFailure {
-                    Log.w(TAG, "Gagal membersihkan file kamera", it)
+                }.onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "Gagal membersihkan file kamera",
+                        error
+                    )
                 }
             }
         }

@@ -43,5 +43,19 @@ class AuthRepository(context: Context) {
             SessionUser(user.id, user.name, user.email).also { session.save(it) }
         }
 
+    /**
+     * Reset password lokal: pengguna harus memasukkan email DAN nama lengkap yang
+     * cocok dengan akun. Salt baru dibuat setiap reset. Sesi tidak diubah.
+     */
+    suspend fun resetPassword(email: String, name: String, newPassword: String) =
+        withContext(Dispatchers.IO) {
+            val user = userDao.findByEmail(email.trim().lowercase())
+            if (user == null || !user.name.trim().equals(name.trim(), ignoreCase = true)) {
+                throw ResetVerificationException()
+            }
+            val salt = PasswordHasher.newSalt()
+            userDao.updatePassword(user.id, PasswordHasher.hash(newPassword, salt), salt)
+        }
+
     fun logout() = session.clear()
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tugashelloworld.data.AuthRepository
 import com.example.tugashelloworld.util.ErrorMapper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 sealed interface AuthEvent {
     object Success : AuthEvent
     object Registered : AuthEvent
+    object PasswordReset : AuthEvent
     data class Error(val message: String) : AuthEvent
 }
 
@@ -33,21 +35,43 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         repository.login(email, password)
     }
 
-    fun register(name: String, email: String, password: String) = execute(AuthEvent.Registered) {
-        repository.register(name, email, password)
-    }
+    fun register(name: String, email: String, password: String) =
+        execute(AuthEvent.Registered) {
+            repository.register(name, email, password)
+        }
 
-    /** Menjalankan aksi autentikasi dengan state loading dan penanganan error terpusat. */
-    private fun execute(success: AuthEvent = AuthEvent.Success, block: suspend () -> Unit) {
+    fun resetPassword(email: String, name: String, newPassword: String) =
+        execute(AuthEvent.PasswordReset) {
+            repository.resetPassword(email, name, newPassword)
+        }
+
+    /**
+     * Menjalankan autentikasi dengan state loading
+     * dan penanganan error terpusat.
+     */
+    private fun execute(
+        success: AuthEvent = AuthEvent.Success,
+        block: suspend () -> Unit
+    ) {
         if (_loading.value) return
+
         val context = getApplication<Application>()
+
         viewModelScope.launch {
             _loading.value = true
+
             try {
                 block()
                 _events.send(success)
+
+            } catch (e: CancellationException) {
+                throw e
+
             } catch (e: Exception) {
-                _events.send(AuthEvent.Error(ErrorMapper.message(context, e)))
+                _events.send(
+                    AuthEvent.Error(ErrorMapper.message(context, e))
+                )
+
             } finally {
                 _loading.value = false
             }

@@ -66,22 +66,39 @@
             android:src="@drawable/ic_close" />
 
         <!-- Penghitung waktu saat merekam -->
-        <TextView
-            android:id="@+id/tv_timer"
+        <LinearLayout
+            android:id="@+id/layout_rec"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:background="@drawable/bg_pill_red"
+            android:background="@drawable/bg_pill_dark"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
             android:paddingStart="14dp"
             android:paddingTop="6dp"
             android:paddingEnd="14dp"
             android:paddingBottom="6dp"
-            android:text="00:00"
-            android:textColor="@color/white"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:visibility="gone"
-            tools:ignore="HardcodedText" />
+            android:visibility="gone">
+
+            <View
+                android:id="@+id/view_rec_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:background="@drawable/bg_dot"
+                android:backgroundTint="#EF4444" />
+
+            <TextView
+                android:id="@+id/tv_timer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:fontFamily="monospace"
+                android:text="00:00"
+                android:textColor="@color/white"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                tools:ignore="HardcodedText" />
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/layout_camera_tools"
@@ -193,6 +210,22 @@
                 android:background="@drawable/bg_shutter"
                 android:contentDescription="@string/cd_shutter" />
 
+            <!-- Thumbnail hasil terakhir: buka galeri -->
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/btn_gallery_thumb"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_gravity="center_vertical|start"
+                android:layout_marginStart="40dp"
+                android:background="@drawable/bg_icon_dark"
+                android:contentDescription="@string/cd_open_gallery"
+                android:padding="1.5dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_gallery"
+                app:shapeAppearanceOverlay="@style/ShapeRounded12"
+                app:strokeColor="@color/white"
+                app:strokeWidth="1.5dp" />
+
             <ImageButton
                 android:id="@+id/btn_switch"
                 android:layout_width="52dp"
@@ -202,6 +235,19 @@
                 android:background="@drawable/bg_icon_dark"
                 android:contentDescription="@string/cd_switch_camera"
                 android:src="@drawable/ic_flip_camera" />
+
+            <!-- Foto saat merekam video: menempati posisi tombol ganti kamera -->
+            <ImageButton
+                android:id="@+id/btn_snapshot"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="40dp"
+                android:background="@drawable/bg_circle_white"
+                android:contentDescription="@string/cd_snapshot"
+                android:src="@drawable/ic_camera"
+                android:visibility="gone"
+                app:tint="@color/black" />
         </FrameLayout>
     </LinearLayout>
 

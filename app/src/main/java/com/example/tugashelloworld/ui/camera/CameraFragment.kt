@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -42,22 +43,26 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.bumptech.glide.Glide
 import com.example.tugashelloworld.R
 import com.example.tugashelloworld.databinding.FragmentCameraBinding
+import com.example.tugashelloworld.util.GalleryUtils
 import com.example.tugashelloworld.util.collectFlow
 import com.example.tugashelloworld.util.snackbar
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Kamera di dalam aplikasi (CameraX) dengan tiga mode seperti kamera pada umumnya:
- *  - POTRET : efek blur latar (CameraX Extensions BOKEH) jika didukung perangkat
- *  - FOTO   : foto kualitas maksimum
- *  - VIDEO  : rekam video Full HD (maks. 30 detik), dengan suara jika izin mikrofon diberikan
- * Fitur lain: kamera depan/belakang, blitz/senter, ketuk untuk fokus, cubit untuk zoom,
- * dan layar tinjau (Ulangi / Gunakan).
+ * Kamera di dalam aplikasi (CameraX) dengan tiga mode:
+ * POTRET, FOTO, dan VIDEO.
  */
 class CameraFragment : Fragment() {
 
@@ -74,22 +79,28 @@ class CameraFragment : Fragment() {
     private var capturing = false
     private var audioAsked = false
 
-    // Menandai rekaman yang harus dibuang jika halaman kamera ditutup.
     private var discardRecordingOnFinalize = false
 
     private var zoomLiveData: LiveData<ZoomState>? = null
+
     private val zoomObserver = Observer<ZoomState> { state ->
-        _binding?.tvZoom?.text = getString(R.string.zoom_format, state.zoomRatio)
+        _binding?.tvZoom?.text =
+            getString(R.string.zoom_format, state.zoomRatio)
     }
 
     private val audioPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
             if (!granted && isAdded) {
-                Toast.makeText(requireContext(), R.string.camera_no_audio, Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    requireContext(),
+                    R.string.camera_no_audio,
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
-    /** Memantau orientasi HP agar EXIF foto dan orientasi video benar. */
     private val orientationListener by lazy {
         object : OrientationEventListener(requireContext()) {
             override fun onOrientationChanged(orientation: Int) {
@@ -113,11 +124,18 @@ class CameraFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentCameraBinding.inflate(inflater, container, false)
+        _binding = FragmentCameraBinding.inflate(
+            inflater,
+            container,
+            false
+        )
         return binding.root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    override fun onViewCreated(
+        view: View,
+        savedInstanceState: Bundle?
+    ) {
         super.onViewCreated(view, savedInstanceState)
 
         if (!hasPermission(Manifest.permission.CAMERA)) {
@@ -126,11 +144,13 @@ class CameraFragment : Fragment() {
                 R.string.permission_camera_denied,
                 Toast.LENGTH_SHORT
             ).show()
+
             findNavController().navigateUp()
             return
         }
 
-        binding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+        binding.previewView.scaleType =
+            PreviewView.ScaleType.FIT_CENTER
 
         setupGestures()
         setupButtons()
@@ -149,6 +169,14 @@ class CameraFragment : Fragment() {
                 is CameraEvent.GalleryFailed -> {
                     snackbar(R.string.gallery_failed)
                 }
+
+                is CameraEvent.SnapshotSaved -> {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.snapshot_saved,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
 
@@ -166,9 +194,9 @@ class CameraFragment : Fragment() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
     // Tombol dan mode
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     private fun setupButtons() {
         binding.btnClose.setOnClickListener {
@@ -185,6 +213,18 @@ class CameraFragment : Fragment() {
 
         binding.btnSwitch.setOnClickListener {
             switchCamera()
+        }
+
+        // Foto saat merekam video (seperti aplikasi kamera pada umumnya).
+        binding.btnSnapshot.setOnClickListener {
+            takeSnapshotWhileRecording()
+        }
+
+        // Buka galeri (thumbnail hasil terakhir).
+        binding.btnGalleryThumb.setOnClickListener {
+            if (recording == null && !capturing) {
+                findNavController().navigate(R.id.action_camera_to_gallery)
+            }
         }
 
         binding.btnFlash.setOnClickListener {
@@ -213,7 +253,9 @@ class CameraFragment : Fragment() {
     }
 
     private fun selectMode(mode: CameraMode) {
-        if (recording != null || capturing || viewModel.mode == mode) return
+        if (recording != null || capturing || viewModel.mode == mode) {
+            return
+        }
 
         viewModel.mode = mode
         viewModel.torchOn = false
@@ -228,16 +270,32 @@ class CameraFragment : Fragment() {
     }
 
     private fun requestAudioIfNeeded() {
-        if (!hasPermission(Manifest.permission.RECORD_AUDIO) && !audioAsked) {
+        if (
+            !hasPermission(Manifest.permission.RECORD_AUDIO) &&
+            !audioAsked
+        ) {
             audioAsked = true
-            audioPermission.launch(Manifest.permission.RECORD_AUDIO)
+            audioPermission.launch(
+                Manifest.permission.RECORD_AUDIO
+            )
         }
     }
 
     private fun updateModeUi() {
-        styleTab(binding.tabPortrait, viewModel.mode == CameraMode.PORTRAIT)
-        styleTab(binding.tabPhoto, viewModel.mode == CameraMode.PHOTO)
-        styleTab(binding.tabVideo, viewModel.mode == CameraMode.VIDEO)
+        styleTab(
+            binding.tabPortrait,
+            viewModel.mode == CameraMode.PORTRAIT
+        )
+
+        styleTab(
+            binding.tabPhoto,
+            viewModel.mode == CameraMode.PHOTO
+        )
+
+        styleTab(
+            binding.tabVideo,
+            viewModel.mode == CameraMode.VIDEO
+        )
 
         updateShutterUi()
         updateFlashIcon()
@@ -247,7 +305,11 @@ class CameraFragment : Fragment() {
 
     private fun styleTab(tab: TextView, selected: Boolean) {
         tab.setTextColor(
-            if (selected) 0xFFFFD54F.toInt() else 0xB3FFFFFF.toInt()
+            if (selected) {
+                0xFFFFD54F.toInt()
+            } else {
+                0xB3FFFFFF.toInt()
+            }
         )
 
         tab.setTypeface(
@@ -263,9 +325,14 @@ class CameraFragment : Fragment() {
     private fun updateShutterUi() {
         binding.btnShutter.setBackgroundResource(
             when {
-                recording != null -> R.drawable.bg_shutter_recording
-                viewModel.mode == CameraMode.VIDEO -> R.drawable.bg_shutter_video
-                else -> R.drawable.bg_shutter
+                recording != null ->
+                    R.drawable.bg_shutter_recording
+
+                viewModel.mode == CameraMode.VIDEO ->
+                    R.drawable.bg_shutter_video
+
+                else ->
+                    R.drawable.bg_shutter
             }
         )
     }
@@ -276,9 +343,14 @@ class CameraFragment : Fragment() {
             camera?.cameraControl?.enableTorch(viewModel.torchOn)
         } else {
             viewModel.flashMode = when (viewModel.flashMode) {
-                ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-                ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
-                else -> ImageCapture.FLASH_MODE_AUTO
+                ImageCapture.FLASH_MODE_AUTO ->
+                    ImageCapture.FLASH_MODE_ON
+
+                ImageCapture.FLASH_MODE_ON ->
+                    ImageCapture.FLASH_MODE_OFF
+
+                else ->
+                    ImageCapture.FLASH_MODE_AUTO
             }
 
             imageCapture?.flashMode = viewModel.flashMode
@@ -296,9 +368,14 @@ class CameraFragment : Fragment() {
             }
         } else {
             when (viewModel.flashMode) {
-                ImageCapture.FLASH_MODE_ON -> R.drawable.ic_flash_on
-                ImageCapture.FLASH_MODE_OFF -> R.drawable.ic_flash_off
-                else -> R.drawable.ic_flash_auto
+                ImageCapture.FLASH_MODE_ON ->
+                    R.drawable.ic_flash_on
+
+                ImageCapture.FLASH_MODE_OFF ->
+                    R.drawable.ic_flash_off
+
+                else ->
+                    R.drawable.ic_flash_auto
             }
         }
 
@@ -309,7 +386,10 @@ class CameraFragment : Fragment() {
         if (recording != null) return
 
         viewModel.lensFacing =
-            if (viewModel.lensFacing == CameraSelector.LENS_FACING_BACK) {
+            if (
+                viewModel.lensFacing ==
+                CameraSelector.LENS_FACING_BACK
+            ) {
                 CameraSelector.LENS_FACING_FRONT
             } else {
                 CameraSelector.LENS_FACING_BACK
@@ -319,9 +399,9 @@ class CameraFragment : Fragment() {
         bindUseCases()
     }
 
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
     // Kamera
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     private fun startCamera() {
         val context = requireContext()
@@ -339,12 +419,10 @@ class CameraFragment : Fragment() {
 
             cameraProvider = provider
 
-            // Extensions untuk efek potret bersifat opsional.
-            val extFuture = ExtensionsManager.getInstanceAsync(context, provider)
+            val extFuture =
+                ExtensionsManager.getInstanceAsync(context, provider)
 
             extFuture.addListener({
-                if (_binding == null) return@addListener
-
                 extensionsManager = runCatching {
                     extFuture.get()
                 }.getOrNull()
@@ -375,20 +453,33 @@ class CameraFragment : Fragment() {
 
         if (_binding == null || recording != null) return
 
-        val hasBack = hasLens(provider, CameraSelector.LENS_FACING_BACK)
-        val hasFront = hasLens(provider, CameraSelector.LENS_FACING_FRONT)
+        val hasBack = hasLens(
+            provider,
+            CameraSelector.LENS_FACING_BACK
+        )
+
+        val hasFront = hasLens(
+            provider,
+            CameraSelector.LENS_FACING_FRONT
+        )
 
         if (!hasBack && !hasFront) {
             fallbackToSystemCamera()
             return
         }
 
-        if (viewModel.lensFacing == CameraSelector.LENS_FACING_BACK && !hasBack) {
-            viewModel.lensFacing = CameraSelector.LENS_FACING_FRONT
-        } else if (
-            viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT && !hasFront
+        if (
+            viewModel.lensFacing == CameraSelector.LENS_FACING_BACK &&
+            !hasBack
         ) {
-            viewModel.lensFacing = CameraSelector.LENS_FACING_BACK
+            viewModel.lensFacing =
+                CameraSelector.LENS_FACING_FRONT
+        } else if (
+            viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT &&
+            !hasFront
+        ) {
+            viewModel.lensFacing =
+                CameraSelector.LENS_FACING_BACK
         }
 
         binding.btnSwitch.isVisible = hasBack && hasFront
@@ -401,7 +492,6 @@ class CameraFragment : Fragment() {
             it.setSurfaceProvider(binding.previewView.surfaceProvider)
         }
 
-        // Mode potret: coba efek blur BOKEH jika perangkat mendukung.
         var selector = baseSelector
         var portraitEffect = false
 
@@ -422,19 +512,21 @@ class CameraFragment : Fragment() {
                     baseSelector,
                     ExtensionMode.BOKEH
                 )
+
                 portraitEffect = true
             }
         }
 
         if (!tryBind(provider, selector, preview)) {
-            // Jika efek gagal, coba kamera tanpa efek.
             if (
                 portraitEffect &&
                 tryBind(
                     provider,
                     baseSelector,
                     Preview.Builder().build().also {
-                        it.setSurfaceProvider(binding.previewView.surfaceProvider)
+                        it.setSurfaceProvider(
+                            binding.previewView.surfaceProvider
+                        )
                     }
                 )
             ) {
@@ -448,7 +540,6 @@ class CameraFragment : Fragment() {
         onCameraBound(portraitEffect)
     }
 
-    /** Mengikat use case sesuai mode kamera. */
     private fun tryBind(
         provider: ProcessCameraProvider,
         selector: CameraSelector,
@@ -461,26 +552,62 @@ class CameraFragment : Fragment() {
                 val recorder = Recorder.Builder()
                     .setQualitySelector(
                         QualitySelector.fromOrderedList(
-                            listOf(Quality.FHD, Quality.HD, Quality.SD),
-                            FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
+                            listOf(
+                                Quality.FHD,
+                                Quality.HD,
+                                Quality.SD
+                            ).drop(viewModel.videoQualityLevel.coerceIn(0, 2)),
+                            FallbackStrategy.lowerQualityOrHigherThan(
+                                Quality.SD
+                            )
                         )
                     )
                     .build()
 
                 val capture = VideoCapture.withOutput(recorder)
 
-                camera = provider.bindToLifecycle(
-                    viewLifecycleOwner,
-                    selector,
-                    preview,
-                    capture
-                )
+                // Coba pasang ImageCapture bersama video agar bisa foto saat merekam.
+                // Jika kombinasi tidak didukung, pakai video saja (foto dari pratinjau).
+                var snapshotCapture: ImageCapture? = null
+
+                if (viewModel.snapshotViaImageCapture) {
+                    val candidate = ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .setJpegQuality(95)
+                        .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+                        .build()
+
+                    try {
+                        camera = provider.bindToLifecycle(
+                            viewLifecycleOwner,
+                            selector,
+                            preview,
+                            capture,
+                            candidate
+                        )
+                        snapshotCapture = candidate
+                    } catch (e: Exception) {
+                        provider.unbindAll()
+                    }
+                }
+
+                if (snapshotCapture == null) {
+                    camera = provider.bindToLifecycle(
+                        viewLifecycleOwner,
+                        selector,
+                        preview,
+                        capture
+                    )
+                }
 
                 videoCapture = capture
-                imageCapture = null
+                imageCapture = snapshotCapture
+
             } else {
                 val capture = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                    .setCaptureMode(
+                        ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                    )
                     .setJpegQuality(95)
                     .setFlashMode(viewModel.flashMode)
                     .build()
@@ -505,7 +632,8 @@ class CameraFragment : Fragment() {
     private fun onCameraBound(portraitEffect: Boolean) {
         val cam = camera ?: return
 
-        binding.btnFlash.isVisible = cam.cameraInfo.hasFlashUnit()
+        binding.btnFlash.isVisible =
+            cam.cameraInfo.hasFlashUnit()
 
         if (viewModel.mode == CameraMode.VIDEO) {
             cam.cameraControl.enableTorch(viewModel.torchOn)
@@ -519,7 +647,6 @@ class CameraFragment : Fragment() {
 
         if (viewModel.mode == CameraMode.PORTRAIT) {
             if (!portraitEffect) {
-                // Tanpa efek blur, gunakan zoom ringan.
                 cam.cameraInfo.zoomState.value?.let { zoom ->
                     cam.cameraControl.setZoomRatio(
                         1.5f.coerceIn(
@@ -551,7 +678,6 @@ class CameraFragment : Fragment() {
         }, 2800)
     }
 
-    /** Jika CameraX gagal, Form memakai kamera bawaan HP. */
     private fun fallbackToSystemCamera() {
         if (!isAdded || _binding == null) return
 
@@ -569,20 +695,24 @@ class CameraFragment : Fragment() {
         findNavController().navigateUp()
     }
 
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
     // Gestur
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     private fun setupGestures() {
         val scaleDetector = ScaleGestureDetector(
             requireContext(),
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                override fun onScale(detector: ScaleGestureDetector): Boolean {
+
+                override fun onScale(
+                    detector: ScaleGestureDetector
+                ): Boolean {
                     val cam = camera ?: return true
                     val zoom = cam.cameraInfo.zoomState.value ?: return true
 
-                    val ratio = (zoom.zoomRatio * detector.scaleFactor)
-                        .coerceIn(
+                    val ratio = (
+                            zoom.zoomRatio * detector.scaleFactor
+                            ).coerceIn(
                             zoom.minZoomRatio,
                             zoom.maxZoomRatio
                         )
@@ -624,11 +754,14 @@ class CameraFragment : Fragment() {
     private fun focusAt(x: Float, y: Float) {
         val cam = camera ?: return
 
-        val point = binding.previewView.meteringPointFactory.createPoint(x, y)
+        val point = binding.previewView
+            .meteringPointFactory
+            .createPoint(x, y)
 
         val action = FocusMeteringAction.Builder(
             point,
-            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+            FocusMeteringAction.FLAG_AF or
+                    FocusMeteringAction.FLAG_AE
         )
             .setAutoCancelDuration(3, TimeUnit.SECONDS)
             .build()
@@ -663,10 +796,9 @@ class CameraFragment : Fragment() {
                 .start()
         }
     }
-
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
     // Foto
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     private fun takePhoto() {
         val capture = imageCapture ?: return
@@ -680,7 +812,8 @@ class CameraFragment : Fragment() {
 
         val metadata = ImageCapture.Metadata().apply {
             isReversedHorizontal =
-                viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT
+                viewModel.lensFacing ==
+                        CameraSelector.LENS_FACING_FRONT
         }
 
         val options = ImageCapture.OutputFileOptions.Builder(file)
@@ -697,6 +830,12 @@ class CameraFragment : Fragment() {
                 ) {
                     capturing = false
 
+                    // Hapus file jika halaman kamera sudah ditutup.
+                    if (_binding == null) {
+                        file.delete()
+                        return
+                    }
+
                     viewModel.capturedPath = file.absolutePath
                     viewModel.capturedIsVideo = false
 
@@ -705,13 +844,13 @@ class CameraFragment : Fragment() {
                         isVideo = false
                     )
 
-                    if (_binding != null) {
-                        playShutterFlash()
-                        showReview()
-                    }
+                    playShutterFlash()
+                    showReview()
                 }
 
-                override fun onError(exception: ImageCaptureException) {
+                override fun onError(
+                    exception: ImageCaptureException
+                ) {
                     capturing = false
                     file.delete()
 
@@ -724,11 +863,79 @@ class CameraFragment : Fragment() {
         )
     }
 
+    private var snapshotBusy = false
+
+    /**
+     * Mengambil foto saat video sedang direkam. Foto langsung masuk ke Galeri
+     * (Pictures/LaporWarga) dan tidak mengganggu rekaman.
+     */
+    private fun takeSnapshotWhileRecording() {
+        if (recording == null || stopping || snapshotBusy) return
+
+        snapshotBusy = true
+        val file = newTempFile("snapshot_", ".jpg")
+        val capture = imageCapture
+
+        if (capture != null) {
+            val metadata = ImageCapture.Metadata().apply {
+                isReversedHorizontal =
+                    viewModel.lensFacing == CameraSelector.LENS_FACING_FRONT
+            }
+
+            capture.takePicture(
+                ImageCapture.OutputFileOptions.Builder(file).setMetadata(metadata).build(),
+                ContextCompat.getMainExecutor(requireContext()),
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        snapshotBusy = false
+                        if (_binding != null) playShutterFlash()
+                        viewModel.saveSnapshotToGallery(file)
+                    }
+
+                    override fun onError(exception: ImageCaptureException) {
+                        snapshotBusy = false
+                        file.delete()
+                        if (_binding != null) snackbar(R.string.snapshot_failed)
+                    }
+                }
+            )
+            return
+        }
+
+        // Cadangan: ambil gambar dari pratinjau.
+        val bitmap = binding.previewView.bitmap
+        if (bitmap == null) {
+            snapshotBusy = false
+            file.delete()
+            snackbar(R.string.snapshot_failed)
+            return
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) }
+                }.getOrDefault(false)
+            }
+            snapshotBusy = false
+            if (ok) {
+                if (_binding != null) playShutterFlash()
+                viewModel.saveSnapshotToGallery(file)
+            } else {
+                file.delete()
+                if (_binding != null) snackbar(R.string.snapshot_failed)
+            }
+        }
+    }
+
     private fun playShutterFlash() {
         binding.flashOverlay.apply {
             animate().cancel()
             alpha = 0.8f
-            animate().alpha(0f).setDuration(250).start()
+            animate()
+                .alpha(0f)
+                .setDuration(250)
+                .start()
         }
     }
 
@@ -736,24 +943,58 @@ class CameraFragment : Fragment() {
         prefix: String,
         suffix: String
     ): File {
-        val dir = File(requireContext().cacheDir, "images").apply {
+        val dir = File(
+            requireContext().cacheDir,
+            "images"
+        ).apply {
             mkdirs()
         }
 
         return File.createTempFile(prefix, suffix, dir)
     }
 
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
     // Video
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     private fun toggleRecording() {
         val active = recording
 
         if (active != null) {
-            active.stop()
+            stopRecording(active)
         } else {
             startRecording()
+        }
+    }
+
+    private var recordStartedAt = 0L
+    private var recordingHadAudio = false
+    private var stopping = false
+
+    /**
+     * Berhenti merekam: tampilan langsung berubah (timer berhenti, tombol dinonaktifkan,
+     * "Menyimpan…") tanpa menunggu CameraX menyelesaikan berkas. Ketukan berulang diabaikan.
+     * Rekaman minimal 1 detik agar berkas tidak gagal karena belum ada data.
+     */
+    private fun stopRecording(active: Recording) {
+        if (stopping) return
+        stopping = true
+
+        stopTimer()
+
+        binding.btnShutter.isEnabled = false
+        binding.btnShutter.alpha = 0.5f
+        binding.btnSnapshot.isEnabled = false
+        binding.btnSnapshot.alpha = 0.5f
+        binding.viewRecDot.alpha = 0.25f
+        binding.tvTimer.text = getString(R.string.camera_saving)
+
+        val wait = (MIN_RECORD_MS - (SystemClock.elapsedRealtime() - recordStartedAt))
+            .coerceAtLeast(0L)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (wait > 0) delay(wait)
+            active.stop()
         }
     }
 
@@ -773,12 +1014,16 @@ class CameraFragment : Fragment() {
             options
         )
 
-        if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+        recordingHadAudio = viewModel.videoAudioEnabled &&
+                hasPermission(Manifest.permission.RECORD_AUDIO)
+
+        if (recordingHadAudio) {
             pending = pending.withAudioEnabled()
         }
 
-        // Rekaman baru tidak ditandai untuk dibuang.
         discardRecordingOnFinalize = false
+        stopping = false
+        recordStartedAt = SystemClock.elapsedRealtime()
 
         recording = pending.start(
             ContextCompat.getMainExecutor(requireContext())
@@ -787,6 +1032,36 @@ class CameraFragment : Fragment() {
         }
 
         setRecordingUi(true)
+        startTimer()
+    }
+
+    /**
+     * Penghitung waktu rekaman berjalan sendiri (tiap 200 ms) berdasarkan jam sistem,
+     * tidak bergantung pada event Status CameraX yang bisa jarang/terlambat.
+     */
+    private var timerJob: Job? = null
+
+    private fun startTimer() {
+        timerJob?.cancel()
+        val startedAt = recordStartedAt
+
+        timerJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                val b = _binding ?: break
+
+                b.tvTimer.text = formatTimer(elapsed / 1000)
+                // Titik merah berkedip tiap 500 ms seperti perekam video umumnya.
+                b.viewRecDot.alpha = if ((elapsed / 500) % 2 == 0L) 1f else 0.25f
+
+                delay(200)
+            }
+        }
+    }
+
+    private fun stopTimer() {
+        timerJob?.cancel()
+        timerJob = null
     }
 
     private fun onVideoEvent(
@@ -795,18 +1070,11 @@ class CameraFragment : Fragment() {
     ) {
         when (event) {
 
-            is VideoRecordEvent.Status -> {
-                val seconds = TimeUnit.NANOSECONDS.toSeconds(
-                    event.recordingStats.recordedDurationNanos
-                )
-
-                _binding?.tvTimer?.text = formatTimer(seconds)
-            }
-
             is VideoRecordEvent.Finalize -> {
                 recording = null
+                stopping = false
+                stopTimer()
 
-                // Jika halaman ditutup saat merekam, buang file video.
                 val shouldDiscard = discardRecordingOnFinalize
                 discardRecordingOnFinalize = false
 
@@ -816,12 +1084,20 @@ class CameraFragment : Fragment() {
                 }
 
                 val limitReached =
-                    event.error == VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED ||
-                            event.error == VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED
+                    event.error ==
+                            VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED ||
+                            event.error ==
+                            VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED
 
-                val success = !event.hasError() || limitReached
+                // SOURCE_INACTIVE: kamera berhenti, tetapi data yang sudah terekam tetap valid.
+                val success = !event.hasError() || limitReached ||
+                        event.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE
 
-                if (success && file.exists() && file.length() > 0) {
+                if (
+                    success &&
+                    file.exists() &&
+                    file.length() > 0
+                ) {
                     viewModel.capturedPath = file.absolutePath
                     viewModel.capturedIsVideo = true
 
@@ -834,12 +1110,18 @@ class CameraFragment : Fragment() {
                         setRecordingUi(false)
                         showReview()
                     }
+                    viewModel.videoFailCount = 0
                 } else {
+                    android.util.Log.e(
+                        "CameraFragment",
+                        "Rekaman video gagal, kode=${event.error}",
+                        event.cause
+                    )
                     file.delete()
 
                     if (_binding != null) {
                         setRecordingUi(false)
-                        snackbar(R.string.camera_capture_failed)
+                        handleVideoFailure(event.error)
                     }
                 }
             }
@@ -848,33 +1130,76 @@ class CameraFragment : Fragment() {
         }
     }
 
+    /**
+     * Perekaman gagal (umum di emulator): turunkan kualitas atau matikan mikrofon
+     * secara bergantian lalu pasang ulang kamera, sehingga percobaan berikutnya berhasil.
+     */
+    private fun handleVideoFailure(error: Int) {
+        viewModel.videoFailCount++
+
+        val canLower = viewModel.videoQualityLevel < 2
+        val canDropAudio = recordingHadAudio && viewModel.videoAudioEnabled
+        val dropAudioNow = canDropAudio && (viewModel.videoFailCount % 2 == 0 || !canLower)
+
+        val message = when {
+            viewModel.snapshotViaImageCapture && imageCapture != null -> {
+                // Kombinasi video + foto bisa menjadi penyebab: lepas ImageCapture dulu.
+                viewModel.snapshotViaImageCapture = false
+                getString(R.string.camera_video_failed, error)
+            }
+            dropAudioNow -> {
+                viewModel.videoAudioEnabled = false
+                getString(R.string.camera_video_failed_no_audio, error)
+            }
+            canLower -> {
+                viewModel.videoQualityLevel++
+                getString(
+                    R.string.camera_video_failed_lower,
+                    error,
+                    if (viewModel.videoQualityLevel == 1) "HD" else "SD"
+                )
+            }
+            else -> getString(R.string.camera_video_failed, error)
+        }
+
+        snackbar(message)
+        bindUseCases()
+    }
+
     private fun formatTimer(seconds: Long): String {
         return String.format(
             java.util.Locale.US,
-            "%02d:%02d / %02d:%02d",
+            "%02d:%02d",
             seconds / 60,
-            seconds % 60,
-            MAX_VIDEO_MS / 60_000,
-            (MAX_VIDEO_MS / 1000) % 60
+            seconds % 60
         )
     }
 
     private fun setRecordingUi(isRecording: Boolean) {
-        binding.tvTimer.isVisible = isRecording
+        binding.layoutRec.isVisible = isRecording
+        binding.btnSnapshot.isVisible = isRecording
 
         if (isRecording) {
             binding.tvTimer.text = formatTimer(0)
+            binding.viewRecDot.alpha = 1f
+        } else {
+            stopTimer()
+            binding.btnShutter.isEnabled = true
+            binding.btnShutter.alpha = 1f
+            binding.btnSnapshot.isEnabled = true
+            binding.btnSnapshot.alpha = 1f
         }
 
         binding.layoutModes.isInvisible = isRecording
         binding.btnSwitch.isInvisible = isRecording
+        binding.btnGalleryThumb.isInvisible = isRecording
 
         updateShutterUi()
     }
 
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
     // Tinjau hasil
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     private fun showReview() {
         val path = viewModel.capturedPath ?: return
@@ -919,7 +1244,6 @@ class CameraFragment : Fragment() {
     private fun retake() {
         binding.vvReview.stopPlayback()
 
-        // Hapus hasil ini, termasuk salinannya di galeri.
         viewModel.discardCapture()
 
         Toast.makeText(
@@ -944,34 +1268,110 @@ class CameraFragment : Fragment() {
     private fun useCapture() {
         val path = viewModel.capturedPath ?: return
 
-        binding.vvReview.stopPlayback()
+        // Cegah tombol Gunakan ditekan berulang kali selama proses berlangsung.
+        if (!binding.btnUse.isEnabled) return
+        binding.btnUse.isEnabled = false
 
-        val uri = FileProvider.getUriForFile(
-            requireContext(),
-            "${requireContext().packageName}.fileprovider",
-            File(path)
-        )
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // Tunggu salinan Galeri selesai dibuat sebelum URI diserahkan.
+                val gallerySaved = viewModel.awaitGallerySave(path)
 
-        viewModel.handedOff = true
+                // Pastikan hasil yang sedang diproses belum diganti atau dibuang.
+                if (viewModel.capturedPath != path) {
+                    return@launch
+                }
 
-        val handle = findNavController()
-            .previousBackStackEntry
-            ?.savedStateHandle
+                if (!gallerySaved || viewModel.galleryUri.isNullOrBlank()) {
+                    snackbar(R.string.gallery_failed)
+                    binding.btnUse.isEnabled = true
+                    return@launch
+                }
 
-        handle?.set(RESULT_IS_VIDEO, viewModel.capturedIsVideo)
-        handle?.set(RESULT_GALLERY_URI, viewModel.galleryUri.orEmpty())
-        handle?.set(RESULT_URI, uri.toString())
+                val navController = findNavController()
+                val handle = navController
+                    .previousBackStackEntry
+                    ?.savedStateHandle
 
-        findNavController().navigateUp()
+                if (handle == null) {
+                    snackbar(R.string.camera_capture_failed)
+                    binding.btnUse.isEnabled = true
+                    return@launch
+                }
+
+                val file = File(path)
+                if (!file.isFile || !file.exists()) {
+                    snackbar(R.string.camera_capture_failed)
+                    binding.btnUse.isEnabled = true
+                    return@launch
+                }
+
+                val uri = FileProvider.getUriForFile(
+                    requireContext(),
+                    "${requireContext().packageName}.fileprovider",
+                    file
+                )
+
+                binding.vvReview.stopPlayback()
+
+                // Serahkan hasil kamera kepada FormFragment.
+                handle.set(RESULT_IS_VIDEO, viewModel.capturedIsVideo)
+                handle.set(RESULT_GALLERY_URI, viewModel.galleryUri.orEmpty())
+                handle.set(RESULT_URI, uri.toString())
+
+                // File sementara dipertahankan karena sudah diserahkan.
+                viewModel.handedOff = true
+                navController.navigateUp()
+
+            } catch (e: Exception) {
+                if (_binding != null) {
+                    snackbar(R.string.camera_capture_failed)
+                    binding.btnUse.isEnabled = true
+                }
+            }
+        }
     }
 
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
+    // Thumbnail galeri
+    // ---------------------------------------------------------
+
+    /** Menampilkan foto/video terbaru di album sebagai thumbnail. */
+    private fun refreshGalleryThumb() {
+        val appContext = context?.applicationContext ?: return
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val latest = withContext(Dispatchers.IO) {
+                GalleryUtils.queryAlbum(appContext).firstOrNull()
+            }
+
+            val view = _binding?.btnGalleryThumb ?: return@launch
+
+            if (latest == null) {
+                Glide.with(this@CameraFragment).clear(view)
+                view.setImageResource(R.drawable.ic_gallery)
+            } else {
+                Glide.with(this@CameraFragment)
+                    .load(latest.uri)
+                    .centerCrop()
+                    .into(view)
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
     // Lifecycle
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------
 
     override fun onStart() {
         super.onStart()
         orientationListener.enable()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Dipanggil juga saat kembali dari galeri (item mungkin sudah dihapus).
+        refreshGalleryThumb()
     }
 
     override fun onStop() {
@@ -980,8 +1380,9 @@ class CameraFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        // Tandai rekaman aktif agar callback Finalize membuang file,
-        // bukan menyimpannya ke galeri.
+        stopTimer()
+
+        // Buang rekaman aktif jika halaman kamera ditutup.
         if (recording != null) {
             discardRecordingOnFinalize = true
             recording?.stop()
@@ -992,7 +1393,7 @@ class CameraFragment : Fragment() {
         zoomLiveData?.removeObserver(zoomObserver)
         zoomLiveData = null
 
-        // Lepaskan seluruh use case CameraX saat tampilan dihancurkan.
+        // Lepaskan seluruh use case CameraX.
         runCatching {
             cameraProvider?.unbindAll()
         }
@@ -1008,13 +1409,13 @@ class CameraFragment : Fragment() {
     }
 
     companion object {
-        /** Kunci hasil yang dibaca FormFragment melalui savedStateHandle. */
         const val RESULT_URI = "camera_result_uri"
         const val RESULT_IS_VIDEO = "camera_result_is_video"
         const val RESULT_GALLERY_URI = "camera_result_gallery_uri"
         const val RESULT_FALLBACK = "camera_result_fallback"
 
         private const val MAX_VIDEO_MS = 30_000L
-        private const val MAX_VIDEO_BYTES = 100L * 1024 * 1024
+        private const val MAX_VIDEO_BYTES = 500L * 1024 * 1024
+        private const val MIN_RECORD_MS = 1_500L
     }
 }

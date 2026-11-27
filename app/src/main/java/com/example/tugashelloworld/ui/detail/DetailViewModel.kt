@@ -1,3 +1,4 @@
+
 package com.example.tugashelloworld.ui.detail
 
 import android.app.Application
@@ -13,12 +14,16 @@ import com.example.tugashelloworld.util.ErrorMapper
 import com.example.tugashelloworld.util.GalleryUtils
 import com.example.tugashelloworld.util.ImageUtils
 import com.example.tugashelloworld.util.Resource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -27,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 sealed interface DetailEvent {
+
     data class Deleted(
         val galleryFailed: Boolean = false
     ) : DetailEvent
@@ -52,29 +58,39 @@ class DetailViewModel(
     private val reportId: Long =
         savedStateHandle.get<Long>("reportId") ?: 0L
 
+    private val refreshTrigger = MutableStateFlow(0)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     val report: StateFlow<Resource<Report?>> =
-        repository.observeReport(reportId)
-            .map<Report?, Resource<Report?>> {
-                Resource.Success(it)
-            }
-            .onStart {
-                emit(Resource.Loading)
-            }
-            .catch {
-                emit(Resource.Error(it))
-            }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5_000),
-                Resource.Loading
-            )
+        refreshTrigger.flatMapLatest {
+            repository.observeReport(reportId)
+                .map<Report?, Resource<Report?>> {
+                    Resource.Success(it)
+                }
+                .onStart {
+                    emit(Resource.Loading)
+                }
+                .catch {
+                    emit(Resource.Error(it))
+                }
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource.Loading
+        )
 
     private val _events = Channel<DetailEvent>(Channel.BUFFERED)
     val events: Flow<DetailEvent> = _events.receiveAsFlow()
 
     /**
-     * Mengambil ulang laporan dan memastikan pengguna
-     * yang sedang login merupakan pemilik laporan.
+     * Memuat ulang laporan.
+     */
+    fun retry() {
+        refreshTrigger.value++
+    }
+
+    /**
+     * Mengambil laporan terbaru dan memeriksa kepemilikan.
      */
     private suspend fun getOwnedReport(id: Long): Report {
         val user = authRepository.currentUser
@@ -97,17 +113,13 @@ class DetailViewModel(
      */
     fun delete(report: Report, alsoGallery: Boolean) {
         perform {
-            // Validasi kepemilikan menggunakan data terbaru dari database.
             val current = getOwnedReport(report.id)
 
-            // Hapus data laporan terlebih dahulu.
             repository.delete(current.id)
 
-            // Hapus file internal setelah data database berhasil dihapus.
             ImageUtils.deleteFile(current.photoPath)
             ImageUtils.deleteFile(current.videoPath)
 
-            // Opsional: hapus salinan foto/video dari galeri.
             val context = getApplication<Application>()
 
             val galleryFailed = if (alsoGallery) {
@@ -119,7 +131,10 @@ class DetailViewModel(
                         .filter { it.isNotBlank() }
                         .map { uri ->
                             runCatching {
-                                GalleryUtils.deleteFromGallery(context, uri)
+                                GalleryUtils.deleteFromGallery(
+                                    context,
+                                    uri
+                                )
                             }.getOrDefault(false)
                         }
                         .any { success -> !success }
@@ -140,10 +155,8 @@ class DetailViewModel(
         newStatus: ReportStatus
     ) {
         perform {
-            // Ambil data terbaru sekaligus periksa kepemilikannya.
             val current = getOwnedReport(report.id)
 
-            // Perbarui status laporan.
             repository.updateStatus(
                 current.id,
                 newStatus.name
@@ -168,6 +181,10 @@ class DetailViewModel(
             try {
                 val event = block()
                 _events.send(event)
+
+            } catch (e: CancellationException) {
+                throw e
+
             } catch (e: Exception) {
                 val message = when (e) {
                     is SecurityException ->

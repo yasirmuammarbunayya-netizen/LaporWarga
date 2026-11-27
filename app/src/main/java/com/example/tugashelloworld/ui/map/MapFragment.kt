@@ -1,15 +1,14 @@
 package com.example.tugashelloworld.ui.map
 
 import android.Manifest
-import android.content.Context
-import android.graphics.drawable.Drawable
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.DrawableCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.os.bundleOf
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -28,188 +27,425 @@ import com.example.tugashelloworld.util.NetworkMonitor
 import com.example.tugashelloworld.util.Resource
 import com.example.tugashelloworld.util.collectFlow
 import com.example.tugashelloworld.util.snackbar
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.CustomZoomButtonsController
-import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.views.overlay.Marker
-import java.io.File
+import org.maplibre.android.MapLibre
+import org.maplibre.android.annotations.IconFactory
+import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
 
 /**
- * Peta sebaran laporan memakai OpenStreetMap (osmdroid), tanpa API key.
- * Marker diwarnai sesuai status; ketuk marker untuk melihat ringkasan, lalu buka detail.
+ * Peta sebaran laporan menggunakan MapLibre dan OpenFreeMap.
+ *
+ * Fitur:
+ * - Menampilkan seluruh laporan yang mempunyai koordinat.
+ * - Marker berada pada koordinat laporan yang tersimpan di Room.
+ * - Warna marker mengikuti status laporan terbaru.
+ * - Pembaruan marker otomatis melalui Flow Room.
+ * - Ringkasan dan navigasi detail laporan.
+ * - Lokasi pengguna menggunakan GPS.
+ * - Penyesuaian kamera otomatis.
+ * - Indikator koneksi internet.
  */
 class MapFragment : Fragment() {
 
     private var _binding: FragmentMapBinding? = null
     private val binding get() = _binding!!
+
     private val viewModel: ReportViewModel by activityViewModels()
+
+    private var mapLibreMap: MapLibreMap? = null
+    private var mapStyleLoaded = false
 
     private var latestReports: List<Report> = emptyList()
     private var stateLoaded = false
     private var hasFittedCamera = false
-    private var myLocation: GeoPoint? = null
+    private var myLocation: LatLng? = null
 
     private val locationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-            if (result.values.any { it }) {
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { result ->
+            if (result.values.any { granted -> granted }) {
                 goToMyLocation()
             } else {
-                // Izin ditolak: peta tetap berfungsi normal
                 snackbar(R.string.permission_location_denied)
             }
         }
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        _binding = FragmentMapBinding.inflate(inflater, container, false)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        MapLibre.getInstance(requireContext())
+
+        _binding = FragmentMapBinding.inflate(
+            inflater,
+            container,
+            false
+        )
+
         return binding.root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    override fun onViewCreated(
+        view: View,
+        savedInstanceState: Bundle?
+    ) {
         super.onViewCreated(view, savedInstanceState)
-        viewModel.start()
+
+        binding.mapView.onCreate(savedInstanceState)
 
         setupMap()
+
+        viewModel.start()
 
         binding.fabMyLocation.setOnClickListener {
             if (LocationHelper.hasPermission(requireContext())) {
                 goToMyLocation()
             } else {
                 locationPermission.launch(
-                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
                 )
             }
         }
 
-        collectFlow(viewModel.uiState) { state ->
+        // Mengamati SELURUH laporan dari database Room.
+        // Tidak menggunakan uiState agar filter halaman lain
+        // tidak menyembunyikan marker pada peta.
+        collectFlow(viewModel.allReports) { state ->
+
             stateLoaded = state is Resource.Success
-            latestReports = (state as? Resource.Success)?.data?.items.orEmpty()
-            binding.progress.isVisible = state is Resource.Loading
+
+            when (state) {
+                is Resource.Success -> {
+                    latestReports = state.data
+                }
+
+                is Resource.Loading -> {
+                    latestReports = emptyList()
+                }
+
+                is Resource.Error -> {
+                    latestReports = emptyList()
+                }
+            }
+
+            binding.progress.isVisible =
+                state is Resource.Loading
+
             renderMarkers()
         }
+
         collectFlow(NetworkMonitor.observe(requireContext())) { online ->
             binding.tvMapOffline.isVisible = !online
         }
     }
 
+    /**
+     * Menginisialisasi peta OpenFreeMap.
+     */
     private fun setupMap() {
-        val appContext = requireContext().applicationContext
-        Configuration.getInstance().apply {
-            load(appContext, appContext.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-            userAgentValue = appContext.packageName
-            osmdroidBasePath = File(appContext.cacheDir, "osmdroid")
-            osmdroidTileCache = File(appContext.cacheDir, "osmdroid/tiles")
-        }
-        binding.mapView.apply {
-            setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            minZoomLevel = 3.0
-            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-            controller.setZoom(4.5)
-            controller.setCenter(GeoPoint(DEFAULT_LAT, DEFAULT_LNG))
+
+        binding.mapView.getMapAsync { map ->
+
+            if (_binding == null) return@getMapAsync
+
+            mapLibreMap = map
+
+            map.setMinZoomPreference(3.0)
+
+            map.uiSettings.apply {
+                isCompassEnabled = true
+                isZoomGesturesEnabled = true
+                isScrollGesturesEnabled = true
+                isRotateGesturesEnabled = true
+                isTiltGesturesEnabled = true
+            }
+
+            map.setStyle(MAP_STYLE_URL) {
+
+                if (_binding == null) return@setStyle
+
+                mapStyleLoaded = true
+
+                map.cameraPosition =
+                    org.maplibre.android.camera.CameraPosition.Builder()
+                        .target(LatLng(DEFAULT_LAT, DEFAULT_LNG))
+                        .zoom(4.5)
+                        .build()
+
+                map.addOnMapClickListener {
+                    _binding?.cardSelected?.isVisible = false
+                    true
+                }
+
+                renderMarkers()
+            }
         }
     }
 
+    /**
+     * Menampilkan seluruh marker laporan.
+     *
+     * Setiap kali Room mengirim data terbaru,
+     * marker dibuat ulang dengan warna sesuai status terbaru.
+     */
     private fun renderMarkers() {
-        if (_binding == null) return
-        val map = binding.mapView
-        map.overlays.clear()
 
-        // Ketuk area kosong pada peta untuk menutup kartu info
-        map.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                _binding?.cardSelected?.isVisible = false
-                return false
-            }
+        if (_binding == null || !mapStyleLoaded) return
 
-            override fun longPressHelper(p: GeoPoint?): Boolean = false
-        }))
+        val map = mapLibreMap ?: return
 
-        val located = latestReports.filter { it.hasLocation() }
-        binding.tvNoMarker.isVisible = stateLoaded && located.isEmpty()
+        // Menghapus marker lama agar tidak terjadi duplikasi.
+        map.removeAnnotations()
 
+        // Hanya laporan dengan latitude dan longitude valid.
+        val located = latestReports.filter { report ->
+            report.hasLocation()
+        }
+
+        binding.tvNoMarker.isVisible =
+            stateLoaded && located.isEmpty()
+
+        // Laporan dengan koordinat yang (hampir) sama, mis. GPS emulator yang tetap,
+        // digeser melingkar sangat kecil agar setiap laporan tetap terlihat dan bisa diketuk.
+        val seen = HashMap<String, Int>()
+
+        // Marker setiap laporan.
         located.forEach { report ->
-            val marker = Marker(map).apply {
-                position = GeoPoint(report.latitude, report.longitude)
-                title = report.title
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                icon = tintedPin(ContextCompat.getColor(requireContext(), report.statusEnum().color))
-                setOnMarkerClickListener { _, _ ->
-                    showSelected(report)
-                    true
-                }
-            }
-            map.overlays.add(marker)
+
+            val key = String.format(
+                java.util.Locale.US, "%.5f,%.5f",
+                report.latitude, report.longitude
+            )
+            val index = seen.merge(key, 1, Int::plus)!! - 1
+            val position = spreadPosition(report.latitude, report.longitude, index)
+
+            val color = ContextCompat.getColor(
+                requireContext(),
+                report.statusEnum().color
+            )
+
+            map.addMarker(
+                MarkerOptions()
+                    .position(position)
+                    .title(report.id.toString())
+                    .snippet(report.title)
+                    .icon(createMarkerIcon(color))
+            )
         }
 
+        // Marker lokasi pengguna.
         myLocation?.let { point ->
-            map.overlays.add(Marker(map).apply {
-                position = point
-                title = getString(R.string.my_location_marker)
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                icon = tintedPin(ContextCompat.getColor(requireContext(), R.color.brand_dark))
-            })
+
+            val color = ContextCompat.getColor(
+                requireContext(),
+                R.color.brand_dark
+            )
+
+            map.addMarker(
+                MarkerOptions()
+                    .position(point)
+                    .title(MY_LOCATION_TITLE)
+                    .snippet(
+                        getString(R.string.my_location_marker)
+                    )
+                    .icon(createMarkerIcon(color))
+            )
         }
 
+        // Menangani klik marker.
+        map.setOnMarkerClickListener { marker ->
+
+            if (marker.title == MY_LOCATION_TITLE) {
+                true
+            } else {
+
+                val selectedReport = latestReports.firstOrNull {
+                    it.id.toString() == marker.title
+                }
+
+                selectedReport?.let { report ->
+                    showSelected(report)
+                }
+
+                true
+            }
+        }
+
+        // Kamera hanya disesuaikan otomatis saat pertama kali
+        // laporan dengan koordinat tersedia.
         if (!hasFittedCamera && located.isNotEmpty()) {
             hasFittedCamera = true
             fitCamera(located)
         }
-        map.invalidate()
     }
 
-    private fun tintedPin(color: Int): Drawable? {
-        val drawable = ContextCompat.getDrawable(requireContext(), R.drawable.ic_pin)?.mutate()
-            ?: return null
-        DrawableCompat.setTint(drawable, color)
-        return drawable
+    /**
+     * Menggeser marker ke-[index] pada koordinat yang sama secara melingkar (±8 m per cincin).
+     */
+    private fun spreadPosition(lat: Double, lng: Double, index: Int): LatLng {
+        if (index == 0) return LatLng(lat, lng)
+        val ring = (index - 1) / 6 + 1
+        val angle = Math.toRadians(((index - 1) % 6) * 60.0 + ring * 20.0)
+        val meters = 8.0 * ring
+        val dLat = meters * Math.sin(angle) / 111_320.0
+        val dLng = meters * Math.cos(angle) /
+                (111_320.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.01))
+        return LatLng(lat + dLat, lng + dLng)
     }
 
+    /**
+     * Membuat ikon marker sesuai warna status.
+     */
+    private fun createMarkerIcon(color: Int) =
+        IconFactory.getInstance(requireContext()).fromBitmap(
+            ContextCompat.getDrawable(
+                requireContext(),
+                R.drawable.ic_pin
+            )!!.mutate().apply {
+                setTint(color)
+            }.toBitmap(
+                config = Bitmap.Config.ARGB_8888
+            )
+        )
+
+    /**
+     * Menampilkan informasi laporan yang dipilih.
+     */
     private fun showSelected(report: Report) {
+
+        if (_binding == null) return
+
         binding.cardSelected.isVisible = true
+
         binding.tvSelTitle.text = report.title
+
         binding.tvSelSubtitle.text = getString(
             R.string.marker_snippet,
             getString(report.categoryEnum().label),
             getString(report.statusEnum().label)
         )
+
         binding.btnSelDetail.setOnClickListener {
-            findNavController().navigate(R.id.action_map_to_detail, bundleOf("reportId" to report.id))
+
+            findNavController().navigate(
+                R.id.action_map_to_detail,
+                bundleOf("reportId" to report.id)
+            )
         }
     }
 
+    /**
+     * Menyesuaikan kamera berdasarkan koordinat laporan.
+     */
     private fun fitCamera(reports: List<Report>) {
-        val map = binding.mapView
-        val points = reports.map { GeoPoint(it.latitude, it.longitude) }
-        map.post {
+
+        if (reports.isEmpty()) return
+
+        val map = mapLibreMap ?: return
+
+        val points = reports.map { report ->
+            LatLng(
+                report.latitude,
+                report.longitude
+            )
+        }
+
+        binding.mapView.post {
+
             if (_binding == null) return@post
-            val box = BoundingBox.fromGeoPoints(points)
-            if (points.size == 1 || box.latitudeSpan == 0.0 || box.longitudeSpan == 0.0) {
-                map.controller.setZoom(16.0)
-                map.controller.setCenter(points.first())
+
+            if (points.size == 1) {
+
+                map.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        points.first(),
+                        16.0
+                    )
+                )
+
             } else {
-                map.zoomToBoundingBox(box.increaseByScale(1.4f), true)
+
+                val builder = LatLngBounds.Builder()
+
+                points.forEach { point ->
+                    builder.include(point)
+                }
+
+                val bounds = builder.build()
+
+                map.animateCamera(
+                    CameraUpdateFactory.newLatLngBounds(
+                        bounds,
+                        80
+                    )
+                )
             }
         }
     }
 
+    /**
+     * Mengambil lokasi pengguna dan memindahkan kamera.
+     */
     private fun goToMyLocation() {
+
+        if (_binding == null) return
+
         viewLifecycleOwner.lifecycleScope.launch {
-            val location = LocationHelper.currentLocation(requireContext())
-            if (location == null) {
-                snackbar(R.string.error_location_failed)
-                return@launch
+
+            try {
+
+                val location = LocationHelper.currentLocation(
+                    requireContext()
+                )
+
+                if (_binding == null) return@launch
+
+                if (location == null) {
+                    snackbar(R.string.error_location_failed)
+                    return@launch
+                }
+
+                val point = LatLng(
+                    location.latitude,
+                    location.longitude
+                )
+
+                myLocation = point
+
+                renderMarkers()
+
+                mapLibreMap?.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        point,
+                        16.0
+                    )
+                )
+
+            } catch (e: CancellationException) {
+                throw e
+
+            } catch (e: Exception) {
+
+                if (_binding != null) {
+                    snackbar(R.string.error_location_failed)
+                }
             }
-            val point = GeoPoint(location.latitude, location.longitude)
-            myLocation = point
-            renderMarkers()
-            binding.mapView.controller.setZoom(16.0)
-            binding.mapView.controller.animateTo(point)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        _binding?.mapView?.onStart()
     }
 
     override fun onResume() {
@@ -222,14 +458,42 @@ class MapFragment : Fragment() {
         super.onPause()
     }
 
+    override fun onStop() {
+        _binding?.mapView?.onStop()
+        super.onStop()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        _binding?.mapView?.onLowMemory()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        _binding?.mapView?.onSaveInstanceState(outState)
+    }
+
     override fun onDestroyView() {
-        _binding?.mapView?.onDetach()
+        _binding?.mapView?.onDestroy()
+
+        mapLibreMap = null
+        mapStyleLoaded = false
+        hasFittedCamera = false
+
         super.onDestroyView()
+
         _binding = null
     }
 
     private companion object {
+
         const val DEFAULT_LAT = -2.5
-        const val DEFAULT_LNG = 118.0 // Pusat Indonesia
+        const val DEFAULT_LNG = 118.0
+
+        const val MAP_STYLE_URL =
+            "https://tiles.openfreemap.org/styles/liberty"
+
+        const val MY_LOCATION_TITLE =
+            "__my_location__"
     }
 }

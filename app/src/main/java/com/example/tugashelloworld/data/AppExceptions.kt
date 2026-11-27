@@ -5,4 +5,7 @@ class EmailInUseException : Exception("Email sudah terdaftar")
 
 class InvalidCredentialsException : Exception("Email atau password salah")
 
+/** Email tidak terdaftar atau nama tidak cocok (pesan sengaja dibuat sama agar email tidak bisa ditebak). */
+class ResetVerificationException : Exception("Email atau nama tidak cocok")
+
 class NotLoggedInException : Exception("Pengguna belum login")

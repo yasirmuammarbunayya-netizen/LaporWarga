@@ -59,7 +59,7 @@ class RegisterFragment : Fragment() {
                         ?.set(RESULT_EMAIL, binding.etEmail.value())
                     findNavController().navigateUp()
                 }
-                is AuthEvent.Success -> Unit
+                is AuthEvent.Success, is AuthEvent.PasswordReset -> Unit
                 is AuthEvent.Error -> snackbar(event.message)
             }
         }

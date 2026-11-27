@@ -38,12 +38,12 @@ Cukup buka di Android Studio, sync, lalu Run.
 
 | Syarat | Implementasi |
 |---|---|
-| Autentikasi | Registrasi, login, logout. Password di-hash (PBKDF2 + salt), sesi tersimpan di SharedPreferences |
+| Autentikasi | Registrasi, login, logout, **lupa password** (verifikasi email + nama lengkap, lalu setel password baru). Password di-hash (PBKDF2 + salt), sesi tersimpan di SharedPreferences |
 | CRUD persisten | Create/Read/Update/Delete laporan di SQLite (Room). Hapus memakai dialog konfirmasi |
 | Entitas utama (≥ 4 atribut) | `Report`: title, description, category, address, latitude, longitude, photoPath, status, userId, userName, createdAt, updatedAt |
 | Pencarian / filter | SearchView (judul/deskripsi/alamat), filter kategori, filter status, pengurutan |
 | ≥ 3 layar + navigasi | Login, Register, Beranda, Peta, Laporan Saya, Profil, Detail, Form (Navigation Component + BottomNavigationView) |
-| Integrasi perangkat/layanan | **Kamera dalam aplikasi (CameraX) dengan mode POTRET / FOTO / VIDEO**, kamera depan & belakang, blitz/senter, fokus & zoom, tinjau hasil; cadangan otomatis ke kamera bawaan HP, Galeri (Photo Picker), GPS (LocationManager) + Geocoder, Peta OpenStreetMap, notifikasi lokal, Intent aplikasi peta, Share |
+| Integrasi perangkat/layanan | **Kamera dalam aplikasi (CameraX) dengan mode POTRET / FOTO / VIDEO**, kamera depan & belakang, blitz/senter, fokus & zoom, tinjau hasil; cadangan otomatis ke kamera bawaan HP, Galeri (Photo Picker), GPS (LocationManager) + Geocoder, Peta OpenStreetMap (sebaran laporan + pemilih lokasi per laporan), notifikasi lokal, Intent aplikasi peta, Share |
 | Izin runtime | Kamera, lokasi, notifikasi. Jika ditolak aplikasi tetap berjalan (input manual / tanpa notifikasi) |
 | UI/UX | Material 3, dark mode, **wallpaper gradasi berganti warna otomatis (dapat dimatikan di Profil)**, loading / empty / error state, pull-to-refresh |
 | Validasi & error | Validasi semua form, pesan error jelas dalam Bahasa Indonesia |

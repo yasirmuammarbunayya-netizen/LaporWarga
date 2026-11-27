@@ -14,6 +14,9 @@
             android:id="@+id/action_login_to_register"
             app:destination="@id/registerFragment" />
         <action
+            android:id="@+id/action_login_to_forgot"
+            app:destination="@id/forgotPasswordFragment" />
+        <action
             android:id="@+id/action_login_to_home"
             app:destination="@id/homeFragment"
             app:popUpTo="@id/nav_graph"
@@ -26,6 +29,12 @@
         android:label="Register"
         tools:layout="@layout/fragment_register">
     </fragment>
+
+    <fragment
+        android:id="@+id/forgotPasswordFragment"
+        android:name="com.example.tugashelloworld.ui.auth.ForgotPasswordFragment"
+        android:label="Lupa Password"
+        tools:layout="@layout/fragment_forgot_password" />
 
     <fragment
         android:id="@+id/homeFragment"
@@ -86,6 +95,9 @@
         <action
             android:id="@+id/action_detail_to_form"
             app:destination="@id/formFragment" />
+        <action
+            android:id="@+id/action_detail_to_viewer"
+            app:destination="@id/mediaViewerFragment" />
     </fragment>
 
     <fragment
@@ -98,13 +110,52 @@
             android:defaultValue="0L"
             app:argType="long" />
         <action
+            android:id="@+id/action_form_to_picker"
+            app:destination="@id/locationPickerFragment" />
+        <action
             android:id="@+id/action_form_to_camera"
             app:destination="@id/cameraFragment" />
+        <action
+            android:id="@+id/action_form_to_gallery"
+            app:destination="@id/galleryFragment" />
+        <action
+            android:id="@+id/action_form_to_viewer"
+            app:destination="@id/mediaViewerFragment" />
     </fragment>
+
+    <fragment
+        android:id="@+id/locationPickerFragment"
+        android:name="com.example.tugashelloworld.ui.map.LocationPickerFragment"
+        android:label="Pilih Lokasi"
+        tools:layout="@layout/fragment_location_picker" />
 
     <fragment
         android:id="@+id/cameraFragment"
         android:name="com.example.tugashelloworld.ui.camera.CameraFragment"
         android:label="Kamera"
-        tools:layout="@layout/fragment_camera" />
+        tools:layout="@layout/fragment_camera">
+        <action
+            android:id="@+id/action_camera_to_gallery"
+            app:destination="@id/galleryFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/galleryFragment"
+        android:name="com.example.tugashelloworld.ui.gallery.GalleryFragment"
+        android:label="Galeri"
+        tools:layout="@layout/fragment_gallery">
+        <argument
+            android:name="pickMode"
+            android:defaultValue="false"
+            app:argType="boolean" />
+        <action
+            android:id="@+id/action_gallery_to_viewer"
+            app:destination="@id/mediaViewerFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/mediaViewerFragment"
+        android:name="com.example.tugashelloworld.ui.gallery.MediaViewerFragment"
+        android:label="Pratinjau"
+        tools:layout="@layout/fragment_media_viewer" />
 </navigation>

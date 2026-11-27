@@ -133,6 +133,7 @@
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant" />
 
+                <!-- Pratinjau video -->
                 <FrameLayout
                     android:id="@+id/video_container"
                     android:layout_width="match_parent"
@@ -163,7 +164,8 @@
                         android:layout_height="wrap_content"
                         android:layout_gravity="top|end"
                         android:layout_margin="8dp"
-                        android:text="@string/remove_photo"
+                        android:text="@string/remove_video"
+                        android:visibility="visible"
                         app:icon="@drawable/ic_delete" />
                 </FrameLayout>
 
@@ -187,7 +189,7 @@
                         android:maxLines="1" />
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Kategori: pilihan tampil di bawah label, rapi dan mudah dipilih -->
+                <!-- Kategori -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -266,6 +268,15 @@
                     android:layout_marginTop="8dp"
                     android:text="@string/use_current_location"
                     app:icon="@drawable/ic_my_location" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_pick_map"
+                    style="@style/Widget.LaporWarga.Button.Tonal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/pick_on_map"
+                    app:icon="@drawable/ic_map" />
 
                 <com.google.android.material.progressindicator.LinearProgressIndicator
                     android:id="@+id/progress_save"

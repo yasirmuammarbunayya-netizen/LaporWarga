@@ -47,6 +47,10 @@ class LoginFragment : Fragment() {
             findNavController().navigate(R.id.action_login_to_register)
         }
 
+        binding.btnForgot.setOnClickListener {
+            findNavController().navigate(R.id.action_login_to_forgot)
+        }
+
         // Setelah mendaftar: email terisi otomatis dan muncul pesan agar pengguna masuk
         val handle = findNavController().currentBackStackEntry?.savedStateHandle
         handle?.getLiveData<String>(RegisterFragment.RESULT_EMAIL)?.observe(viewLifecycleOwner) { email ->
@@ -55,6 +59,16 @@ class LoginFragment : Fragment() {
                 binding.etEmail.setText(email)
                 binding.etPassword.requestFocus()
                 snackbar(R.string.register_success)
+            }
+        }
+        // Setelah reset password: email terisi otomatis
+        handle?.getLiveData<String>(ForgotPasswordFragment.RESULT_EMAIL)?.observe(viewLifecycleOwner) { email ->
+            if (!email.isNullOrBlank()) {
+                handle[ForgotPasswordFragment.RESULT_EMAIL] = ""
+                binding.etEmail.setText(email)
+                binding.etPassword.text = null
+                binding.etPassword.requestFocus()
+                snackbar(R.string.reset_success)
             }
         }
 
@@ -66,7 +80,7 @@ class LoginFragment : Fragment() {
         collectFlow(viewModel.events) { event ->
             when (event) {
                 is AuthEvent.Success -> findNavController().navigate(R.id.action_login_to_home)
-                is AuthEvent.Registered -> Unit
+                is AuthEvent.Registered, is AuthEvent.PasswordReset -> Unit
                 is AuthEvent.Error -> snackbar(event.message)
             }
         }

@@ -12,4 +12,7 @@ interface UserDao {
 
     @Query("SELECT * FROM users WHERE email = :email LIMIT 1")
     suspend fun findByEmail(email: String): User?
+
+    @Query("UPDATE users SET passwordHash = :hash, salt = :salt WHERE id = :id")
+    suspend fun updatePassword(id: Long, hash: String, salt: String)
 }

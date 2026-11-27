@@ -7,20 +7,40 @@ import com.example.tugashelloworld.R
 import com.example.tugashelloworld.data.EmailInUseException
 import com.example.tugashelloworld.data.InvalidCredentialsException
 import com.example.tugashelloworld.data.NotLoggedInException
+import com.example.tugashelloworld.data.ResetVerificationException
 import java.io.IOException
 
-/** Mengubah exception teknis menjadi pesan yang mudah dipahami pengguna. */
+/**
+ * Mengubah exception teknis menjadi pesan
+ * yang mudah dipahami pengguna.
+ */
 object ErrorMapper {
 
     @StringRes
     private fun resOf(t: Throwable): Int = when (t) {
-        is EmailInUseException -> R.string.error_email_in_use
-        is InvalidCredentialsException -> R.string.error_invalid_credentials
-        is NotLoggedInException -> R.string.error_not_logged_in
-        is SQLiteException -> R.string.error_database
-        is IOException -> R.string.error_storage
-        else -> R.string.error_generic
+        is EmailInUseException ->
+            R.string.error_email_in_use
+
+        is InvalidCredentialsException ->
+            R.string.error_invalid_credentials
+
+        is ResetVerificationException ->
+            R.string.error_reset_verification
+
+        is NotLoggedInException ->
+            R.string.error_not_logged_in
+
+        is SQLiteException ->
+            R.string.error_database
+
+        is IOException ->
+            R.string.error_storage
+
+        else ->
+            R.string.error_generic
     }
 
-    fun message(context: Context, t: Throwable): String = context.getString(resOf(t))
+    fun message(context: Context, t: Throwable): String {
+        return context.getString(resOf(t))
+    }
 }

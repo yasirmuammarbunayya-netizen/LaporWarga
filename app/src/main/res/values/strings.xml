@@ -25,6 +25,14 @@
     <string name="register_subtitle">Bergabung dan bantu perbaiki lingkungan Anda</string>
     <string name="register_button">Daftar</string>
     <string name="register_link">Daftar</string>
+    <string name="forgot_link">Lupa password?</string>
+    <string name="forgot_title">Lupa password</string>
+    <string name="forgot_subtitle">Verifikasi akun Anda lalu buat password baru</string>
+    <string name="forgot_info">Masukkan email dan nama lengkap sesuai saat mendaftar.</string>
+    <string name="hint_new_password">Password baru</string>
+    <string name="reset_button">Reset password</string>
+    <string name="reset_success">Password berhasil diubah. Silakan masuk.</string>
+    <string name="error_reset_verification">Email atau nama lengkap tidak cocok dengan akun terdaftar.</string>
     <string name="no_account">Belum punya akun?</string>
     <string name="have_account">Sudah punya akun?</string>
     <string name="hint_name">Nama lengkap</string>
@@ -109,11 +117,23 @@
     <string name="camera">Kamera</string>
     <string name="gallery">Galeri</string>
     <string name="remove_photo">Hapus</string>
+    <string name="remove_video">Hapus video</string>
     <string name="hint_title">Judul laporan</string>
     <string name="hint_category">Kategori</string>
     <string name="hint_description">Deskripsi masalah</string>
     <string name="hint_address">Alamat / lokasi kejadian</string>
     <string name="coordinates_empty">Koordinat belum diatur</string>
+    <string name="camera_video_failed">Gagal menyimpan video (kode %1$d). Silakan coba lagi.</string>
+    <string name="camera_video_failed_lower">Gagal menyimpan video (kode %1$d). Kualitas diturunkan ke %2$s, silakan rekam lagi.</string>
+    <string name="camera_video_failed_no_audio">Gagal menyimpan video (kode %1$d). Merekam tanpa suara, silakan rekam lagi.</string>
+    <string name="snapshot_saved">Foto tersimpan di galeri</string>
+    <string name="snapshot_failed">Gagal mengambil foto</string>
+    <string name="cd_snapshot">Ambil foto saat merekam</string>
+    <string name="camera_saving">Menyimpan…</string>
+    <string name="pick_on_map">Pilih lokasi di peta</string>
+    <string name="picker_title">Pilih lokasi laporan</string>
+    <string name="picker_hint">Ketuk peta untuk menandai lokasi</string>
+    <string name="picker_confirm">Gunakan lokasi ini</string>
     <string name="use_current_location">Gunakan lokasi saat ini</string>
     <string name="locating">Mencari lokasi…</string>
     <string name="submit_report">Kirim laporan</string>
@@ -189,4 +209,23 @@
     <string name="error_not_logged_in">Sesi login berakhir. Silakan masuk kembali.</string>
     <string name="error_database">Terjadi kesalahan pada penyimpanan data. Silakan coba lagi.</string>
     <string name="error_storage">Gagal menyimpan atau membaca berkas. Periksa ruang penyimpanan perangkat.</string>
+
+    <!-- Galeri aplikasi -->
+    <string name="gallery_title">Galeri</string>
+    <string name="gallery_empty">Belum ada foto atau video.\nAmbil lewat kamera, hasilnya muncul di sini.</string>
+    <string name="gallery_pick_device">Pilih dari galeri perangkat</string>
+    <string name="gallery_unsupported">Format media tidak didukung.</string>
+    <string name="gallery_use">Gunakan</string>
+    <string name="gallery_selected_count">%1$d dipilih</string>
+    <string name="gallery_deleted_count">%1$d item dihapus dari galeri</string>
+    <string name="gallery_delete_failed">Gagal menghapus dari galeri</string>
+    <string name="gallery_delete_title">Hapus dari galeri?</string>
+    <string name="gallery_delete_message">%1$d item akan dihapus permanen dari galeri.</string>
+    <string name="gallery_delete_photo_title">Hapus foto ini?</string>
+    <string name="gallery_delete_video_title">Hapus video ini?</string>
+    <string name="gallery_delete_one_message">Item akan dihapus permanen dari galeri.</string>
+    <string name="viewer_counter">%1$d / %2$d</string>
+    <string name="viewer_missing">Berkas tidak ditemukan</string>
+    <string name="viewer_video_failed">Video gagal diputar</string>
+    <string name="cd_open_gallery">Buka galeri</string>
 </resources>

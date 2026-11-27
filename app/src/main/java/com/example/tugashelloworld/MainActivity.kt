@@ -71,7 +71,8 @@ class MainActivity : AppCompatActivity() {
         navController.addOnDestinationChangedListener { _, destination, _ ->
             onTopLevel = destination.id in topLevelDestinations
             onCamera = destination.id == R.id.cameraFragment
-            binding.root.setBackgroundColor(if (onCamera) Color.BLACK else themeBackgroundColor())
+            val dark = onCamera || destination.id == R.id.mediaViewerFragment
+            binding.root.setBackgroundColor(if (dark) Color.BLACK else themeBackgroundColor())
             updateBottomInsets()
         }
 
